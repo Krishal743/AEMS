@@ -1,0 +1,59 @@
+# ===== Python =====
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# ===== Virtual Environments =====
+.venv/
+venv/
+env/
+
+# ===== OS / Editor junk =====
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# ===== Jupyter =====
+.ipynb_checkpoints/
+
+# ===== Logs =====
+*.log
+logs/
+
+# ===== Data (IMPORTANT for ML projects) =====
+data/
+datasets/
+videos/
+frames/
+audio/
+features/
+
+# ===== Model artifacts =====
+checkpoints/
+models/
+weights/
+*.pt
+*.pth
+*.ckpt
+
+# ===== Outputs / Experiments =====
+outputs/
+runs/
+wandb/
+tensorboard/
+
+# ===== Temporary files =====
+tmp/
+temp/
+cache/
+
+# ===== Environment variables / secrets =====
+.env
+.env.*
+
+# ===== ZIPs & archives =====
+*.zip
+*.tar
+*.tar.gz
