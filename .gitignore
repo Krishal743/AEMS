@@ -23,26 +23,26 @@ Thumbs.db
 logs/
 
 # ===== Data (IMPORTANT for ML projects) =====
-data/
-datasets/
-videos/
-frames/
-audio/
-features/
+/data/
+/datasets/
+/videos/
+/frames/
+/audio/
+/features/
 
 # ===== Model artifacts =====
-checkpoints/
-models/
-weights/
+/checkpoints/
+/models/
+/weights/
 *.pt
 *.pth
 *.ckpt
 
 # ===== Outputs / Experiments =====
-outputs/
-runs/
-wandb/
-tensorboard/
+/outputs/
+/runs/
+/wandb/
+/tensorboard/
 
 # ===== Temporary files =====
 tmp/
@@ -57,3 +57,11 @@ cache/
 *.zip
 *.tar
 *.tar.gz
+
+# ===== Session checkpoints =====
+RF-session-*.md
+
+# ===== Agent / Skill system files =====
+.agents/
+.opencode/
+skills-lock.json
