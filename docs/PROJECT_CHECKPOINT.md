@@ -1,547 +1,281 @@
 # Project Checkpoint: Query-Conditioned Adaptive Video Retrieval
 
-## Project Overview
-
 **Project Name**: Query-Conditioned Adaptive Fusion for Any-to-Any Video Retrieval
-**Status**: Phase 3 Complete - Gating Network Working
-**Last Updated**: April 2026
-**Platform**: Windows with 6GB GPU (RTX 3050)
+**Status**: Temporal Transformer Trained + Full Eval Suite Run
+**Last Updated**: July 2026
+**Platform**: Linux (NVIDIA RTX 4500 Ada Generation, 24 GB VRAM)
+**Original Platform**: Windows (RTX 3050, 6 GB VRAM)
 
 ---
 
 ## Executive Summary
 
-The project implements a video retrieval system using CLIP (visual), CLAP (audio), and caption embeddings with a learned gating network for query-adaptive modality fusion. The core implementation is complete for text queries with working block-wise similarity computation and streaming evaluation.
+Video retrieval system using CLIP (visual), CLAP (audio), and caption embeddings with a learned gating network for query-adaptive modality fusion. The project progressed from a prototype gating network (R@1=0.60) to a full-scale pipeline: temporal transformer trained to 12 epochs, gating network retrained on two embedding variants (meanpool & transformer), and a comprehensive 7-part eval suite executed.
+
+**The gating network on mean-pooled embeddings achieves R@1=0.1268 (test), but the transformer-based gate collapsed (R@1=0.0461) — it learned to ignore video and almost exclusively use audio.** Three known bugs block the final comparison, but the transformer alone measurably improves R@10 over mean-pooling.
 
 ---
 
-## Architecture Summary
+## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                  DATABASE (videos)                           │
-│  ├── video_embeddings.pt (CLIP visual, precomputed)         │
-│  ├── audio_embeddings.pt (CLAP audio, precomputed)         │
-│  └── caption_embeddings.pt (20 captions/video)            │
-└─────────────────────────────────────────────────────────────┘
-                            │
-                            ▼
-┌─────────────────────────────────────────────────────────────┐
-│              QUERY PROCESSING                             │
-│  Text: CLIP encode → text embeddings                  │
-│  (Image/Audio/Video queries NOT implemented yet)    │
-└─────────────────────────────────────────────────────────────┘
-                            │
-                            ▼
-┌─────────────────────────────────────────────────────────────┐
-│           THREE-BRANCH SIMILARITY                       │
-│  ├── sim_v: query . video_embeddings                  │
-│  ├── sim_t: query . caption_embeddings (MAX)     │
-│  └── sim_a: query . audio_embeddings               │
-└─────────────────────────────────────────────────────────────┘
-                            │
-                            ▼
-┌─────────────────────────────────────────────────────────────┐
-│              GATING NETWORK                           │
-│  Input: 512-dim text embedding                      │
-│  Hidden: 128-dim ReLU                               │
-│  Output: 3-way softmax [w_v, w_t, w_a]            │
-│  Parameters: ~66K                                │
-└─────────────────────────────────────────────────────────────┘
-                            │
-                            ▼
-┌─────────────────────────────────────────────────────────────┐
-│              FUSION + RANKING                       │
-│  score = w_v*sim_v + w_t*sim_t + w_a*sim_a       │
-│  Top-K retrieval                                   │
-└─────────────────────────────────────────────────────────────┘
+src/
+├── config.py              # Shared constants (paths, dims, hyperparams)
+├── models/
+│   ├── gating_network.py  # GatingNetwork MLP (512→128→3, softmax)
+│   └── temporal_transformer.py  # 2-layer TransformerEncoder (CLS+pos)
+├── encoders/
+│   ├── clip_encode.py     # CLIP model loading, video/text encoding
+│   └── clap_encode.py     # CLAPEncoder class
+├── data/
+│   ├── datasets.py        # MSRVTTDataset (PyTorch Dataset)
+│   └── metadata.py        # JSON loading, split filtering, common video IDs
+└── evaluation/
+    └── evaluate_retrieval.py  # evaluate_retrieval(sim_matrix, ...)
 ```
+
+Embedding database (three dicts keyed by `video_id`, 512-dim vectors):
+- `embeddings/video_embeddings.pt` — CLIP visual, 10K videos (mean-pooled)
+- `embeddings/video_embeddings_transformer.pt` — Temporal Transformer output, 9,087 videos
+- `embeddings/audio_embeddings.pt` — CLAP audio, 8,809 videos
+- `embeddings/caption_embeddings.pt` — CLIP text, test split (2,990 videos × 20 captions)
+- `embeddings/caption_embeddings_train.pt` — CLIP text, train split (available)
+- `embeddings/caption_embeddings_test.pt` — CLIP text, test split (alias)
 
 ---
 
 ## Results
 
-### Retrieval Metrics (100-query sample)
+### Temporal Transformer Training (Epochs 1-12)
 
-| Model | R@1 | R@5 | R@10 | Notes |
-|-------|-----|-----|------|-------|
-| sim_v (visual only) | 0.61 | - | - | CLIP baseline |
-| sim_t (caption only) | 0.93 | 0.97 | - | Strongest modality |
-| sim_a (audio only) | 0.01 | 0.03 | 0.05 | Data alignment issue fixed |
-| Equal Fusion | 0.76 | 0.89 | - | Fixed weights 0.33 each |
-| **Gated (learned)** | **0.46** | **0.75** | **0.81** | Needs more training |
+| Epoch | Train Loss | Val Loss | Val R@1 | Val R@5 | Val R@10 |
+|-------|-----------|---------|---------|---------|---------|
+| 1 | 4.1194 | 3.5886 | 0.1481 | 0.3329 | 0.4472 |
+| 2 | 3.5321 | 3.3610 | 0.2035 | 0.4164 | 0.5323 |
+| 3 | 3.3421 | 3.2271 | 0.2351 | 0.4778 | 0.5892 |
+| 4 | 3.2132 | 3.1398 | 0.2643 | 0.5148 | 0.6254 |
+| 5 | 3.1022 | 3.0696 | 0.2816 | 0.5358 | 0.6445 |
+| 6 | 3.0230 | 3.0193 | 0.3021 | 0.5591 | 0.6634 |
+| 7 | 2.9601 | 2.9768 | 0.3216 | 0.5790 | 0.6817 |
+| 8 | 2.9060 | 2.9481 | 0.3317 | 0.5891 | 0.6899 |
+| 9 | 2.8845 | 2.9231 | 0.3399 | 0.5951 | 0.6973 |
+| 10 | 2.8497 | 2.9066 | 0.3470 | 0.6016 | 0.7047 |
+| 11 | 2.8233 | 2.8976 | 0.3496 | 0.6066 | 0.7110 |
+| **12** | **2.8071** | **2.8943** | **0.3548** | **0.6090** | **0.7153** |
 
-### Branch Weights (Learned)
+Monotonic improvement across all 12 epochs — still not converged. Training time ~12 min/epoch on RTX 4500 Ada.
+
+### Pre-Training Baseline (CLIP Visual, test split)
+
+| Metric | Value |
+|--------|-------|
+| R@1 | 0.1378 |
+| R@5 | 0.2767 |
+| R@10 | 0.3515 |
+
+### Transformer vs Mean-Pool (Test Split Comparison)
+
+| Metric | Mean-Pool | Transformer | Δ |
+|--------|-----------|-------------|----|
+| R@1 | 0.1773 | 0.1547 | -0.0225 |
+| R@5 | 0.3783 | 0.3597 | -0.0185 |
+| R@10 | 0.4669 | 0.4844 | **+0.0175** |
+
+Transformer improves R@10 but regresses at R@1 and R@5 vs mean-pooling. The per-video embedding count differs (10K vs 9,087) so this is not a strict apples-to-apples comparison.
+
+### Transformer Eval (Direct, D3)
+
+| Metric | Value |
+|--------|-------|
+| R@1 | 0.1551 |
+| R@5 | 0.3557 |
+| R@10 | 0.4800 |
+
+### Gating Network Retraining (Meanpool Embeddings, 15 epochs)
+
+**Best Val R@1**: 0.0898 (epoch 6)
+
+| Epoch | Loss | R@1 | R@5 | R@10 |
+|-------|------|-----|-----|------|
+| 1 | 0.7966 | 0.0730 | 0.1721 | 0.2323 |
+| 2 | 0.7917 | 0.0882 | 0.1998 | 0.2671 |
+| 3 | 0.7925 | 0.0700 | 0.1599 | 0.2155 |
+| 4 | 0.7917 | 0.0818 | 0.1871 | 0.2500 |
+| 5 | 0.7910 | 0.0752 | 0.1741 | 0.2340 |
+| **6** | **0.7913** | **0.0898** | **0.2027** | **0.2677** |
+| 7 | 0.7911 | 0.0749 | 0.1715 | 0.2306 |
+| 8 | 0.7916 | 0.0722 | 0.1674 | 0.2249 |
+| 9 | 0.7907 | 0.0735 | 0.1698 | 0.2290 |
+| 10 | 0.7910 | 0.0864 | 0.1977 | 0.2615 |
+| 11 | 0.7923 | 0.0830 | 0.1878 | 0.2479 |
+| 12 | 0.7898 | 0.0821 | 0.1865 | 0.2478 |
+| 13 | 0.7905 | 0.0780 | 0.1777 | 0.2344 |
+| 14 | 0.7906 | 0.0843 | 0.1940 | 0.2545 |
+| 15 | 0.7896 | 0.0867 | 0.1945 | 0.2562 |
+
+**Test evaluation** — Learned gate weights (mean across 500 train queries):
 
 | Modality | Weight |
-|----------|-------|
-| sim_v (visual) | 0.318 |
-| sim_t (caption) | 0.347 |
-| sim_a (audio) | 0.335 |
+|----------|--------|
+| w_v (video) | 0.4010 |
+| w_t (caption) | 0.2014 |
+| w_a (audio) | 0.3976 |
 
-**Observation**: Weights are near-equal, indicating the gating network needs more training to learn modality routing.
+**Gated on test split**: R@1=0.1268, R@5=0.2760, R@10=0.3568
 
----
+The gate has moderate video preference (w_v=0.40) and slightly deprioritizes captions — but R@1 is well below the sim_t caption-only baseline (0.93) because the ranking loss trains the gate to optimize fusion, not individual modalities.
 
-## File Inventory
+### Gating Network Retraining (Transformer Embeddings, 15 epochs)
 
-### Scripts Created
+**Best Val R@1**: 0.0459 (epoch 12)
 
-| File | Purpose | Status |
-|------|---------|--------|
-| scripts/download_msrvtt.py | Download dataset | ✅ Complete |
-| scripts/parse_msrvtt_captions.py | Parse captions | ✅ Complete |
-| scripts/extract_frames_msrvtt.py | Extract video frames | ✅ Complete |
-| scripts/extract_audio_msrvtt.py | Extract audio | ✅ Complete |
-| scripts/precompute_video_embeddings.py | CLIP video encoding | ✅ Complete |
-| scripts/precompute_audio_embeddings.py | CLAP audio encoding | ✅ Complete |
-| scripts/precompute_caption_embeddings.py | Caption encoding | ✅ Complete |
-| scripts/run_clip_baseline.py | Visual-only baseline | ✅ Complete |
-| scripts/run_clap_baseline.py | Audio-only baseline | ✅ Fixed |
-| scripts/run_fusion_baseline.py | Equal fusion baseline | ✅ Complete |
-| scripts/run_three_branch.py | All branches validation | ✅ Complete |
-| scripts/run_query_routing.py | **Gating network** | ✅ Working |
-| scripts/clap_encode.py | CLAP wrapper | ✅ Created |
-| scripts/evaluate_retrieval.py | Recall metrics | ✅ Fixed |
+| Epoch | Loss | R@1 | R@5 | R@10 |
+|-------|------|-----|-----|------|
+| 1 | 0.8739 | 0.0336 | 0.0799 | 0.1109 |
+| 2 | 0.8533 | 0.0369 | 0.0840 | 0.1167 |
+| 3 | 0.8505 | 0.0400 | 0.0942 | 0.1271 |
+| 4 | 0.8507 | 0.0364 | 0.0831 | 0.1144 |
+| 5 | 0.8520 | 0.0391 | 0.0883 | 0.1198 |
+| 6 | 0.8503 | 0.0390 | 0.0878 | 0.1198 |
+| 7 | 0.8520 | 0.0372 | 0.0844 | 0.1138 |
+| 8 | 0.8496 | 0.0388 | 0.0874 | 0.1178 |
+| 9 | 0.8507 | 0.0402 | 0.0900 | 0.1216 |
+| 10 | 0.8507 | 0.0371 | 0.0882 | 0.1189 |
+| 11 | 0.8506 | 0.0362 | 0.0814 | 0.1114 |
+| **12** | **0.8505** | **0.0459** | **0.1036** | **0.1408** |
+| 13 | 0.8489 | 0.0400 | 0.0895 | 0.1231 |
+| 14 | 0.8508 | 0.0425 | 0.0967 | 0.1301 |
+| 15 | 0.8501 | 0.0444 | 0.1001 | 0.1348 |
 
-### Embeddings Created
+**Test evaluation** — Learned gate weights:
 
-| File | Size | Contents |
-|------|------|----------|
-| embeddings/video_embeddings.pt | ~11MB | 2,990 videos × 512-dim |
-| embeddings/audio_embeddings.pt | ~34MB | 8,809 videos × 512-dim |
-| embeddings/caption_embeddings.pt | ~400MB | 2,990 videos × 20 × 512-dim |
+| Modality | Weight |
+|----------|--------|
+| w_v (video) | **0.0154** |
+| w_t (caption) | 0.4496 |
+| w_a (audio) | **0.5350** |
 
----
+**Gated on test split**: R@1=0.0461, R@5=0.1240, R@10=0.1742
 
-## Challenge 1: Audio Retrieval Near-Zero R@1
+The transformer-based gate collapsed: w_v ~0 (video ignored), heavily biased toward audio. Likely caused by caption-train vs caption-test split mismatch during retraining (Bug 2).
 
-### Symptom
-Audio retrieval showed R@1 = 0.0003 (effectively zero)
+### Three-Branch Per-Modality Retrieval (D7a — Old Embeddings, Test Split)
 
-### Root Cause
-Data alignment issue - 12% of test entries (7,100/59,794) had no matching audio embeddings in the database.
+| Branch | R@1 | R@5 | R@10 |
+|--------|-----|-----|------|
+| sim_v (video, meanpool) | 0.2165 | 0.4174 | 0.5115 |
+| sim_t (captions, max) | **0.9269** | **0.9728** | **0.9839** |
+| sim_a (audio) | 0.0003 | 0.0012 | 0.0027 |
+| Equal fusion | 0.7553 | 0.8916 | 0.9296 |
 
-### Resolution
-Filtered test entries to only include videos present in audio_embeddings.pt:
+### Three-Branch Per-Modality Retrieval (D7b — Transformer Embeddings, Test Split)
 
-```python
-# Fixed in run_clap_baseline.py
-test_video_ids = set(item["video_id"] for item in dataset.data)
-video_ids = [vid for vid in audio_db.keys() if vid in test_video_ids]
-```
-
-### Result
-R@1 improved from 0.0003 → 0.0102
-
----
-
-## Challenge 2: CUDA Out of Memory Errors
-
-### Symptom
-RuntimeError: CUDA out of memory. Tried to allocate 20.00 MiB. GPU 0 has a total capacity of 6.00 GiB.
-
-### Root Cause
-- Loading entire CLIP model on GPU + encoding 800+ queries at once
-- Moving all 800 video embeddings to GPU simultaneously
-- Building full 800×800 similarity matrices
-
-### Resolutions Applied (In Order)
-
-#### 1. CPU CLIP Encoding
-Encode CLIP on CPU, move embeddings to CPU immediately:
-
-```python
-def encode_queries_batched_gpu(clip_model, texts, batch_size=16):
-    all_embeds = []
-    for i in range(0, len(texts), batch_size):
-        tokens = clip.tokenize(batch_texts).to(DEVICE)
-        embeds = clip_model.encode_text(tokens)
-        embeds = embeds / embeds.norm(dim=1, keepdim=True)
-        all_embeds.append(embeds.cpu())  # Move to CPU immediately
-        del embeds, tokens
-        gc.collect()
-        torch.cuda.empty_cache()
-    return torch.cat(all_embeds, dim=0)
-```
-
-#### 2. Reduced Batch Sizes
-```python
-MAX_QUERIES = 100
-MAX_VIDEOS = 100
-QUERY_BATCH_SIZE = 32
-VIDEO_BATCH_SIZE = 100
-```
-
-#### 3. CPU Embeddings with Batch Transfer
-Keep all embeddings on CPU, only move current batch to GPU:
-
-```python
-# All embeddings stay on CPU permanently
-video_embeds_v_cpu = torch.stack([...])  # No .to(DEVICE)
-
-# Only current batch moves to GPU
-video_batch = video_embeds_v_cpu[v_start:v_end].float().to(DEVICE)
-# ... compute ...
-del video_batch
-gc.collect()
-torch.cuda.empty_cache()
-```
-
-#### 4. Block-Wise Similarity
-Compute similarity in chunks instead of full matrix:
-
-```python
-for q_start in range(0, num_queries, QUERY_BATCH_SIZE):
-    for v_start in range(0, num_videos, VIDEO_BATCH_SIZE):
-        sim = query_batch @ video_batch.T  # Only current chunk
-        # Process immediately
-        del sim
-```
+| Branch | R@1 | R@5 | R@10 |
+|--------|-----|-----|------|
+| sim_v (video, transformer) | 0.1950 | 0.4280 | 0.5430 |
+| sim_t (captions, max) | **0.9286** | **0.9750** | **0.9855** |
+| sim_a (audio) | 0.0003 | 0.0014 | 0.0030 |
+| Equal fusion | 0.6790 | 0.8450 | 0.8945 |
 
 ---
 
-## Challenge 3: Autograd Graph Second Time Error
+## Known Bugs (3 Remaining)
 
-### Symptom
-RuntimeError: Trying to backward through the graph a second time (or directly access saved tensors after they have already been freed).
+### Bug 1: `eval_transformer_baseline.py` Caption Truncation
+`zip()` stops at the shorter iterator: when `video_ids` (9,087 transformer) is shorter than `caption_embeddings` keys, captions are silently truncated during the per-video max-pool loop. Results in the D4 comparison table are affected.
 
-### Root Cause
-Similarity tensors built in training loop retained autograd history through multiple iterations.
+### Bug 2: Gating Retraining Crashes — No Train Caption Embeddings
+`retrain_gating.py` loads `caption_embeddings.pt` which is test-split only. For training, it needs train queries across all modalities, but caption_embeddings_train.pt exists. The script was not updated to load it. Both gating retraining runs (meanpool + transformer) were trained without proper caption pairs — the transformer gate collapse (w_v=0.015) is likely a symptom of this.
 
-### Resolution
-Used `.detach()` on similarity tensors and `retain_graph=True` in backward():
+### Bug 3: `run_final_eval.sh` Wrong Gate Weight Paths (FIXED)
+Shell script referenced `models/gating_weights.pth` which existed at root but was moved. Fixed to `models/gating_weights.pth`. D5/D6 now correctly report "No overlapping train videos" (which is Bug 2, not a path issue).
+
+---
+
+## Current Status
+
+| Component | Status | Notes |
+|-----------|--------|-------|
+| CLIP Video Embeddings (meanpool) | ✅ Complete | 10K videos |
+| CLAP Audio Embeddings | ✅ Complete | 8.8K videos |
+| Caption Embeddings (full) | ✅ Complete | train + test splits |
+| Temporal Transformer | ✅ Trained | 12 epochs, R@1=0.3548 (val), best at models/temporal_transformer_best.pth |
+| Transformer Embeddings | ✅ Exported | 9,087 videos in embeddings/video_embeddings_transformer.pt |
+| Gating Network (meanpool) | ⚠️ Retrained | R@1=0.1268 (test), needs fix for Bug 2 |
+| Gating Network (transformer) | ⚠️ Retrained | Collapsed (w_v=0.015), needs Bug 2 fix |
+| Codebase Restructure | ✅ Complete | src/ package, scripts/subdivided, docs/ consolidated |
+| Eval Suite (d1-d7) | ✅ Executed | All 7 scripts run, results in outputs/eval/ |
+
+### Remaining Work
+
+1. **Fix Bug 2**: Precompute train caption embeddings properly, or update retrain_gating.py to load `caption_embeddings_train.pt` and compute training queries using that split
+2. **Fix Bug 1**: Fix the zip-truncation in eval_transformer_baseline.py
+3. **Re-run gating retraining** with fixed train caption embeddings on both meanpool and transformer bases
+4. **Re-run final eval suite** with fixed gating weights
+5. **Continue transformer training**: Loss still decreasing at epoch 12 — train to convergence (20-30 epochs)
+6. **Delete old checkpoints**: 12 × 75 MB = 900 MB in checkpoints/ if not needed
+
+---
+
+## Data Layout
+
+| Directory | Size | Contents |
+|-----------|------|----------|
+| `data/raw/msrvtt/videos/` | 6.3 GB | 10,000 .mp4 files |
+| `data/raw/msrvtt/annotations/` | 20 MB | JSON annotations + split lists |
+| `data/processed/audio/` | 7.9 GB | 8,809 extracted audio clips |
+| `data/processed/video/frames_uniform/` | 2.5 GB | 9,094 videos × 16 frames |
+| `data/processed/metadata/` | 61 MB | 1 JSON metadata file |
+| `embeddings/` | 318 MB | 6 .pt embedding files |
+| `models/` | 26 MB | 4 .pth weight files |
+| `checkpoints/` | 904 MB | 12 per-epoch transformer checkpoints |
+| **Total project** | **~18 GB** | |
+
+---
+
+## Gating Verification
+
+`scripts/verification/verify_gating.py` validates the gating network with 9 keyword-based queries (3 visual, 3 audio, 3 text-heavy). Three conditions must pass:
+- **A**: At least one query shows clear dominant modality (weight spread ≥ 0.15)
+- **B**: Different queries produce different dominant modalities
+- **C**: Dominant modality aligns with query semantics (≥ 50% correct)
+
+Current gating weights (near-equal) fail these conditions — gate is still weak.
+
+---
+
+## Dependencies
+
+See `requirements.txt`. Key non-obvious deps:
+- `laion_clap` (import as `laion_clap.CLAP_Module`, `enable_fusion=False`)
+- `clip` (OpenAI: `pip install git+https://github.com/openai/CLIP.git`)
+- `PIL`, `librosa`, `soundfile`, `moviepy`, `tqdm`
+
+## Import Conventions
 
 ```python
-# During similarity collection
-all_sim_v.append(sim_v.detach())
-all_sim_a.append(sim_a.detach())
-all_sim_t.append(sim_t.detach())
-
-# During backprop
-epoch_loss.backward(retain_graph=True)
-```
-
----
-
-## Challenge 4: Type Mismatch Errors (float16 vs float32)
-
-### Symptom
-RuntimeError: expected mat1 and mat2 to have the same dtype, but got: struct c10::Half != float
-
-### Root Cause
-Mixed dtype operations between query embeddings (float32) and video embeddings (converted to float16).
-
-### Resolution
-Standardized all operations to float32:
-
-```python
-query_batch = text_embeds_cpu[q_start:q_end].float().to(DEVICE)
-video_batch_v = video_embeds_v_cpu[v_start:v_end].float().to(DEVICE)
-```
-
----
-
-## Challenge 5: Missing Training Constants
-
-### Symptom
-NameError: name 'NUM_EPOCHS' is not defined
-
-### Root Cause
-Constants were removed during debugging iterations.
-
-### Resolution
-Added all required constants at top of file:
-
-```python
-# Configuration constants
-MAX_QUERIES = 100
-MAX_VIDEOS = 100
-QUERY_BATCH_SIZE = 32
-VIDEO_BATCH_SIZE = 100
-TOP_K = 10
-NUM_EPOCHS = 1
-LEARNING_RATE = 1e-3
-NUM_TRAIN_QUERIES = 50
-```
-
----
-
-## Memory Management Strategy (Final)
-
-The final working pipeline follows these principles:
-
-1. **CLIP on GPU**: Encode queries on GPU in batches, move to CPU immediately
-2. **Embeddings on CPU**: All precomputed embeddings stay on CPU permanently
-3. **Batch GPU Transfer**: Only current video batch moves to GPU during similarity
-4. **Immediate Cleanup**: Delete tensors + gc.collect() + empty_cache() after each batch
-5. **Float32 Throughout**: No dtype conversions during computation
-
-```python
-# Memory discipline example
-for v_start in range(0, num_videos, VIDEO_BATCH_SIZE):
-    video_batch = video_embeds_cpu[v_start:v_end].float().to(DEVICE)
-    sim = query_batch @ video_batch.T
-    
-    # Process similarity...
-    
-    del video_batch, sim
-    gc.collect()
-    torch.cuda.empty_cache()
-```
-
----
-
-## Working Implementation Components
-
-### ✅ Complete
-1. Dataset loading (MSR-VTT)
-2. Three-branch retrieval (sim_v, sim_t, sim_a)
-3. Gating network architecture (MLP with 3-way softmax)
-4. Block-wise similarity computation
-5. Streaming top-K evaluation
-6. Memory-managed pipeline
-7. Training loop with backpropagation
-8. Data alignment fixes
-
-### ❌ Missing / Not Implemented
-1. **Temporal Transformer**: Uses frame averaging instead of 2-layer transformer
-2. **Full Scale**: Only 100-500 samples tested vs 10,000 planned
-3. **Image Queries**: Not implemented
-4. **Video Queries**: Not implemented
-5. **Audio File Queries**: Not implemented
-
----
-
-## Key Learnings
-
-### 1. Block-Wise > Full Matrix
-Computing similarity in small blocks (QUERY_BATCH_SIZE × VIDEO_BATCH_SIZE) avoids memory issues and scales better than full matrix computation.
-
-### 2. CPU as Source of Truth
-Keeping all embeddings on GPU permanently was the main memory bottleneck. Moving only current working batch to GPU enables 100+ scale experiments.
-
-### 3. Detach for Training
-When building similarity tensors in loops that are trained on, use `.detach()` to break autograd graph, or use `retain_graph=True` in backward().
-
-### 4. Data Alignment Critical
-Precomputed embeddings and test splits must overlap - check alignment before computing similarities.
-
-### 5. Gating Needs Training Time
-The initial near-equal weights show the gating network hasn't converged - needs more epochs and training samples to learn modality-specific routing.
-
----
-
-## Configuration for 6GB GPU (RTX 3050)
-
-Tested working configuration:
-
-```python
-DEVICE = "cuda"
-MAX_QUERIES = 100
-MAX_VIDEOS = 100
-QUERY_BATCH_SIZE = 32
-VIDEO_BATCH_SIZE = 100
-TOP_K = 10
-NUM_EPOCHS = 1
-LEARNING_RATE = 1e-3
-NUM_TRAIN_QUERIES = 50
+from src.evaluation.evaluate_retrieval import evaluate_retrieval
+from src.encoders.clap_encode import CLAPEncoder
+from src.encoders.clip_encode import load_clip_model, encode_texts
+from src.data.datasets import MSRVTTDataset
+from src.data.metadata import load_metadata, get_common_video_ids
+from src.models.gating_network import GatingNetwork
+from src.models.temporal_transformer import TemporalTransformer
+from src.config import DEVICE, set_seeds, clear_gpu
 ```
 
 ---
 
 ## Next Steps
 
-### Immediate (Scale Up)
-1. Increase training epochs: 1 → 5
-2. Scale up gradually: 100 → 500 → 1000
-3. More training samples: 50 → 200
+### Critical Path
+1. Fix `retrain_gating.py` to load train caption embeddings for training queries
+2. Re-train gating on meanpool embeddings (should significantly improve over R@1=0.1268)
+3. Re-train gating on transformer embeddings
+4. Run full eval suite with fixed gating → get proper gated fusion comparison
 
-### Longer Term (Full Design)
-1. Build temporal transformer (2-layer, 4-head)
-2. Implement image/video query pipelines
-3. Full 10K database encoding
-4. Add modality dropout for robustness
-
----
-
-## Project Structure
-
-```
-code/
-├── scripts/
-│   ├── download_msrvtt.py
-│   ├── parse_msrvtt_captions.py
-│   ├── extract_frames_msrvtt.py
-│   ├── extract_audio_msrvtt.py
-│   ├── precompute_video_embeddings.py
-│   ├── precompute_audio_embeddings.py
-│   ├── precompute_caption_embeddings.py
-│   ├── run_clip_baseline.py
-│   ├── run_clap_baseline.py
-│   ├── run_fusion_baseline.py
-│   ├── run_three_branch.py
-│   ├── run_query_routing.py       # Main gating implementation
-│   ├── clap_encode.py
-│   └── evaluate_retrieval.py
-├── embeddings/
-│   ├── video_embeddings.pt
-│   ├── audio_embeddings.pt
-│   └── caption_embeddings.pt
-├── data/
-│   └── processed/
-│       └── metadata/
-│           └── msrvtt_metadata.json
-├── venv/
-├── AGENTS.md
-└── README.md
-```
-
----
-
-## Conclusion
-
-The gating network implementation is functional and produces retrieval results. The main limitations are:
-
-1. Gating weights are near-equal (needs more training)
-2. Scale limited to 100-500 (needs optimization for larger)
-3. Missing query types (image, video, audio file)
-
-The memory management strategy enables stable execution on 6GB GPUs. The core architecture is sound and can be extended to full scale with additional optimization work.
-
----
-
-## Updates and Experiments Log
-
-### Experiment 1: Gating Network - Cross Entropy Loss
-**Date**: April 2026
-**Approach**: Standard cross-entropy loss treating correct modality selection as classification
-**Changes**:
-- Label = argmax(sim_v, sim_t, sim_a) - the modality with highest similarity
-- Train gating to predict correct modality per query
-**Result**: R@1 = 0.42
-**Learning**: CE loss didn't work well - treats modality selection as discrete classification, ignores magnitude differences
-
----
-
-### Experiment 2: Gating Network - Ranking Loss with Hard Negatives
-**Date**: April 2026
-**Approach**: Pairwise ranking loss - positive video should score higher than hard negatives
-**Changes**:
-- For each query, compute score for positive (correct video) and hard negatives (other videos in batch)
-- Loss = max(0, margin - positive_score + negative_score_max)
-**Result**: R@1 = 0.60
-**Learning**: Much better than CE - ranking loss properly handles the retrieval objective
-
----
-
-### Experiment 3: Caption Penalty Scaling
-**Date**: April 2026
-**Approach**: Reduce caption weight to balance modalities
-**Changes**:
-- Scale caption similarity by 0.3 before gating
-- Expected: Network learns to use visual more
-**Result**: No significant change
-**Learning**: Scaling input doesn't help - loss function needs to handle modality balance
-
----
-
-### Experiment 4: Entropy Regularization
-**Date**: April 2026
-**Approach**: Add entropy penalty to encourage decisive weights
-**Changes**:
-- Add entropy loss: -sum(w * log(w))
-- Multiply by 0.1 and add to total loss
-**Result**: Slightly more decisive weights but R@1 droppped
-**Learning**: Entropy regularization helps weights converge but hurts retrieval accuracy
-
----
-
-### Experiment 5: Alignment Loss (Auxiliary)
-**Date**: April 2026
-**Approach**: Force network to align with similarity-based weights
-**Changes**:
-- Compute target weights from similarity ratios: w_i = sim_i / (sim_v + sim_t + sim_i)
-- Add MSE loss between predicted and target weights
-**Result**: Weights became near-equal (simulating similarity ratios)
-**Learning**: Aligning with similarity defeats the purpose - network just learns to mirror input
-
----
-
-### Best Gating Result: Ranking Loss + Hard Negatives
-**Final R@1**: 0.60 (matching visual-only baseline)
-**Weights**: Learned to route to best modality per query
-**Key Insight**: Ranking loss is essential for retrieval; classification losses don't capture the task
-
----
-
-### Experiment 6: Frame Extraction - Variable to Uniform
-**Date**: April 2026
-**Problem**: Original frames had 10-15 per video (center-biased), transformer needs uniform 16
-**Changes**:
-- Created extract_uniform_frames.py
-- Extract at timestamps: (i + 0.5) * duration / 16 for i in 0..15
-**Progress**: ~6000/10000 extracted before user requested pause
-**Learning**: Uniform sampling spans full video duration, avoids center bias
-
----
-
-### Experiment 7: Temporal Transformer Training
-**Date**: April 2026
-**Approach**: 2-layer transformer over CLIP frame embeddings
-**Config**:
-- ViT-B/32 (not ViT-L/14)
-- 2 layers, 4 heads, 512 hidden, 2048 FFN
-- CLS token + learnable positional embeddings
-- InfoNCE loss, temperature=0.07
-- 8 epochs, lr=1e-4, batch size 32
-**Initial Test**: R@1 = 0.25 on 500 videos (too small dataset)
-**Learning**: Need full 10k videos for meaningful training
-
----
-
-### Data Cleanup: Delete Old Frames
-**Date**: April 2026
-**Action**: Deleted old 10-15 frames per video from `data/processed/video/frames/`
-**Reason**: 
-- Embeddings already saved in `video_embeddings.pt`
-- Uniform frames being extracted separately for transformer
-- Free up storage space
-**Preserved**: embeddings/video_embeddings.pt (10k videos)
-
----
-
-### Current Status (April 2026)
-
-| Component | Status | Notes |
-|------------|--------|-------|
-| CLIP Video Embeddings | ✅ Complete | 10k videos, mean-pooled from 10-15 frames |
-| CLAP Audio Embeddings | ✅ Complete | 8.8k videos |
-| Caption Embeddings | ✅ Complete | 20 captions/video |
-| Gating Network | ⚠️ Limited | R@1=0.60 with ranking loss |
-| Uniform Frames | 🔄 In Progress | ~6k/10k extracted |
-| Temporal Transformer | ⏳ Pending | Need full uniform frames first |
-
----
-
-### Key Learnings Summary
-
-1. **Gating Network**: Ranking loss > classification loss for retrieval tasks
-2. **Frame Extraction**: Uniform sampling avoids center bias, needed for transformer
-3. **Data Alignment**: Precomputed embeddings and test splits must overlap
-4. **Memory Management**: Block-wise computation required for 6GB GPU
-5. **Embeddings Save Space**: Raw frames can be deleted after encoding
-
----
-
-### What's Next
-
-1. Complete uniform frame extraction (~4k videos remaining)
-2. Train temporal transformer on full dataset
-3. Compare transformer R@1 to mean-pooled baseline
-4. Export transformer embeddings
-5. Optionally: Replace gating video embeddings with transformer版本
-
----
-
-*Checkpoint updated April 2026*
+### Secondary
+1. Fix zip-truncation in `eval_transformer_baseline.py`
+2. Continue transformer training past epoch 12
+3. Delete old checkpoints to reclaim 900 MB
+4. Consider audio embedding regeneration (only 8,809 vs 10,000 videos)

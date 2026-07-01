@@ -63,5 +63,6 @@ RF-session-*.md
 
 # ===== Agent / Skill system files =====
 .agents/
+agent/
 .opencode/
 skills-lock.json
