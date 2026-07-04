@@ -67,10 +67,18 @@ print(f"[DATA] Videos with {NUM_FRAMES} frames: {len(valid_video_ids)}")
 full_data = [m for m in metadata if m["split"] == "train" and m["video_id"] in valid_video_ids]
 print(f"[DATA] Total train+val items: {len(full_data)}")
 
-random.shuffle(full_data)
-val_size = int(len(full_data) * 0.15)
-val_data = full_data[:val_size]
-train_data = full_data[val_size:]
+# Fix: Video-level split
+all_vids = sorted({m["video_id"] for m in full_data})
+random.shuffle(all_vids)
+val_size = max(1, int(len(all_vids) * 0.15))
+val_vids = set(all_vids[:val_size])
+train_vids = set(all_vids[val_size:])
+
+# Verify no overlap
+assert len(train_vids & val_vids) == 0, "Train/val video overlap detected!"
+
+val_data = [m for m in full_data if m["video_id"] in val_vids]
+train_data = [m for m in full_data if m["video_id"] in train_vids]
 
 unique_train_vids = len(set(m["video_id"] for m in train_data))
 unique_val_vids = len(set(m["video_id"] for m in val_data))
