@@ -243,17 +243,23 @@ def main():
             )
             
             # Ranking loss: compare correct video against hard negatives
-            # For each query, correct video is at diagonal index (q_start + i maps to video i)
+            # For each query, correct video is at diagonal index
+            # FIXED: Map query to correct video index
+            video_id_to_idx = {vid: i for i, vid in enumerate(common_vids)}
+            
             ranking_losses = []
             num_negatives = 10  # Use more negatives
             
             for i in range(batch_len):
                 query_idx = q_start + i
-                correct_score = sim_gated[i, i].unsqueeze(0)
+                # CORRECT POSITIVE INDEX
+                correct_vid = unique_video_ids[query_idx]
+                correct_idx = video_id_to_idx[correct_vid]
+                correct_score = sim_gated[i, correct_idx].unsqueeze(0)
                 
-                # Get top-k hard negatives (exclude correct video at index i)
+                # Get top-k hard negatives (exclude correct video at correct_idx)
                 neg_scores = sim_gated[i].clone()
-                neg_scores[i] = -float('inf')  # Exclude correct
+                neg_scores[correct_idx] = -float('inf')  # Exclude correct
                 topk_scores, topk_indices = torch.topk(neg_scores, min(num_negatives, batch_len - 1))
                 
                 # Margin ranking loss: correct - negative > margin

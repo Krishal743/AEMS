@@ -62,18 +62,19 @@ def encode_queries(clip_model, texts, batch_size=32):
     return torch.cat(all_embeds, dim=0)
 
 
-def compute_ranking_loss(weights, sim_v, sim_t, sim_a, batch_len, q_start):
+def compute_ranking_loss(weights, sim_v, sim_t, sim_a, pos_indices):
     sim_gated = (
         weights[:, 0:1] * sim_v +
         weights[:, 1:2] * sim_t +
         weights[:, 2:3] * sim_a
     )
     ranking_losses = []
-    for i in range(batch_len):
-        correct_score = sim_gated[i, i].unsqueeze(0)
+    for i in range(len(pos_indices)):
+        pos_idx = pos_indices[i]
+        correct_score = sim_gated[i, pos_idx].unsqueeze(0)
         neg_scores = sim_gated[i].clone()
-        neg_scores[i] = -float("inf")
-        topk_scores, _ = torch.topk(neg_scores, min(NUM_NEGATIVES, batch_len - 1))
+        neg_scores[pos_idx] = -float("inf")
+        topk_scores, _ = torch.topk(neg_scores, min(NUM_NEGATIVES, len(pos_indices) - 1))
         for neg_score in topk_scores:
             ranking_losses.append(
                 torch.clamp(RANKING_MARGIN - (correct_score - neg_score.unsqueeze(0)), min=0)
@@ -114,6 +115,7 @@ def main():
     print(f"  Caption train: {len(caption_train_db)}  Caption test: {len(caption_test_db)}")
 
     train_common_vids = get_common_video_ids(video_db, audio_db, caption_train_db, train_video_ids)
+    train_vid_to_idx = {vid: i for i, vid in enumerate(train_common_vids)}
     test_common_vids = get_common_video_ids(video_db, audio_db, caption_test_db, test_video_ids)
     print(f"  Common train videos: {len(train_common_vids)}")
     print(f"  Common test videos:  {len(test_common_vids)}")
@@ -243,7 +245,9 @@ def main():
             gc.collect()
 
             weights = gate(q_batch)
-            loss = compute_ranking_loss(weights, sim_v, sim_t, sim_a, batch_len, q_start_idx)
+            batch_vids = [train_vids[idx] for idx in batch_global_idx.tolist()]
+            pos_indices = torch.tensor([train_vid_to_idx[vid] for vid in batch_vids], device=DEVICE)
+            loss = compute_ranking_loss(weights, sim_v, sim_t, sim_a, pos_indices)
 
             loss.backward(retain_graph=True)
             optimizer.step()
