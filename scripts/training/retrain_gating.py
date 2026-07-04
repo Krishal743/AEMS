@@ -166,24 +166,26 @@ def main():
     num_videos = len(train_common_vids)
     video_matrix = torch.stack([to_tensor(video_db[v]) for v in train_common_vids])
     audio_matrix = torch.stack([to_tensor(audio_db[v]) for v in train_common_vids])
-    caption_matrix = torch.stack([
-        to_tensor(caption_train_db[v]).max(dim=0)[0] for v in train_common_vids
+    # Fix: keep all 20 captions per video
+    caption_tensor = torch.stack([
+        F.normalize(to_tensor(caption_train_db[v]), p=2, dim=1) for v in train_common_vids
     ])
     video_matrix = F.normalize(video_matrix, p=2, dim=1)
     audio_matrix = F.normalize(audio_matrix, p=2, dim=1)
-    caption_matrix = F.normalize(caption_matrix, p=2, dim=1)
     print(f"  Train modality matrices: {video_matrix.shape} each")
+    print(f"  Caption tensor (per-video, per-caption): {caption_tensor.shape}")
 
     num_test_videos = len(test_common_vids)
     video_matrix_test = torch.stack([to_tensor(video_db[v]) for v in test_common_vids])
     audio_matrix_test = torch.stack([to_tensor(audio_db[v]) for v in test_common_vids])
-    caption_matrix_test = torch.stack([
-        to_tensor(caption_test_db[v]).max(dim=0)[0] for v in test_common_vids
+    # Fix: keep all 20 test captions per video
+    caption_tensor_test = torch.stack([
+        F.normalize(to_tensor(caption_test_db[v]), p=2, dim=1) for v in test_common_vids
     ])
     video_matrix_test = F.normalize(video_matrix_test, p=2, dim=1)
     audio_matrix_test = F.normalize(audio_matrix_test, p=2, dim=1)
-    caption_matrix_test = F.normalize(caption_matrix_test, p=2, dim=1)
     print(f"  Test modality matrices:  {video_matrix_test.shape} each")
+    print(f"  Test caption tensor: {caption_tensor_test.shape}")
 
     del video_db, audio_db, caption_train_db, caption_test_db
     gc.collect()
@@ -231,11 +233,16 @@ def main():
                 v_end = min(v_start + VIDEO_BATCH_SIZE, num_videos)
                 v_batch = video_matrix[v_start:v_end].float().to(DEVICE)
                 a_batch = audio_matrix[v_start:v_end].float().to(DEVICE)
-                c_batch = caption_matrix[v_start:v_end].float().to(DEVICE)
+                c_tensor = caption_tensor[v_start:v_end].float().to(DEVICE)
                 all_sim_v.append(q_batch @ v_batch.T)
-                all_sim_t.append(q_batch @ c_batch.T)
+                # Fix: max over 20 captions per video
+                sim_qc = torch.bmm(
+                    q_batch.unsqueeze(1).expand(-1, c_tensor.size(0), -1),
+                    c_tensor.permute(0, 2, 1)
+                )
+                all_sim_t.append(sim_qc.max(dim=2).values)
                 all_sim_a.append(q_batch @ a_batch.T)
-                del v_batch, a_batch, c_batch
+                del v_batch, a_batch, c_tensor
                 gc.collect()
 
             sim_v = torch.cat(all_sim_v, dim=1)
@@ -272,7 +279,11 @@ def main():
             val_q = val_text_cpu.float().to(DEVICE)
             w = gate(val_q).cpu()
             val_sim_v = val_q @ video_matrix.float().to(DEVICE).T
-            val_sim_t = val_q @ caption_matrix.float().to(DEVICE).T
+            # Fix: max over 20 captions per video
+            val_c = caption_tensor.float().to(DEVICE)
+            val_q_exp = val_q.unsqueeze(1).expand(-1, val_c.size(0), -1)
+            val_qc = torch.bmm(val_q_exp, val_c.permute(0, 2, 1))
+            val_sim_t = val_qc.max(dim=2).values
             val_sim_a = val_q @ audio_matrix.float().to(DEVICE).T
             val_sim_gated = (
                 w[:, 0:1].to(DEVICE) * val_sim_v +
@@ -322,7 +333,11 @@ def main():
             q = t_cpu.float().to(DEVICE)
             w = gate(q).cpu()
             t_sim_v = q @ video_matrix_test.float().to(DEVICE).T
-            t_sim_t = q @ caption_matrix_test.float().to(DEVICE).T
+            # Fix: max over 20 captions per video
+            t_c = caption_tensor_test.float().to(DEVICE)
+            t_q_exp = q.unsqueeze(1).expand(-1, t_c.size(0), -1)
+            t_qc = torch.bmm(t_q_exp, t_c.permute(0, 2, 1))
+            t_sim_t = t_qc.max(dim=2).values
             t_sim_a = q @ audio_matrix_test.float().to(DEVICE).T
             t_sim_gated = (
                 w[:, 0:1].to(DEVICE) * t_sim_v +

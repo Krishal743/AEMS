@@ -128,19 +128,19 @@ def main():
         print(f"[MEM] After CLIP: {torch.cuda.memory_allocated()/1e9:.2f} GB")
     
     print("[EMB] Building embeddings on CPU (permanent)...")
-    
+
     video_embeds_v_cpu = torch.stack([to_tensor(video_db_v[vid]) for vid in common_vids])
     video_embeds_a_cpu = torch.stack([to_tensor(video_db_a[vid]) for vid in common_vids])
-    caption_embeds_cpu = torch.stack([
-        to_tensor(caption_db[vid]).max(dim=0)[0] for vid in common_vids
+    # Fix: keep all 20 captions per video
+    caption_tensor_cpu = torch.stack([
+        F.normalize(to_tensor(caption_db[vid]), p=2, dim=1) for vid in common_vids
     ])
-    
+
     del video_db_v, video_db_a, caption_db
     gc.collect()
-    
+
     video_embeds_v_cpu = F.normalize(video_embeds_v_cpu, p=2, dim=1)
     video_embeds_a_cpu = F.normalize(video_embeds_a_cpu, p=2, dim=1)
-    caption_embeds_cpu = F.normalize(caption_embeds_cpu, p=2, dim=1)
     
     print(f"[MEM] Embeddings on CPU: {video_embeds_v_cpu.element_size() * video_embeds_v_cpu.nelement() * 3 / 1e6:.2f} MB")
     
@@ -198,17 +198,21 @@ def main():
                 
                 video_batch_v = video_embeds_v_cpu[v_start:v_end].float().to(DEVICE)
                 video_batch_a = video_embeds_a_cpu[v_start:v_end].float().to(DEVICE)
-                caption_batch = caption_embeds_cpu[v_start:v_end].float().to(DEVICE)
+                c_tensor_batch = caption_tensor_cpu[v_start:v_end].float().to(DEVICE)
                 
                 sim_v = query_batch @ video_batch_v.T
                 sim_a = query_batch @ video_batch_a.T
-                sim_t = query_batch @ caption_batch.T
+                sim_qc = torch.bmm(
+                    query_batch.unsqueeze(1).expand(-1, c_tensor_batch.size(0), -1),
+                    c_tensor_batch.permute(0, 2, 1)
+                )
+                sim_t = sim_qc.max(dim=2).values
                 
                 all_sim_v.append(sim_v)
                 all_sim_a.append(sim_a)
                 all_sim_t.append(sim_t)
                 
-                del video_batch_v, video_batch_a, caption_batch
+                del video_batch_v, video_batch_a, c_tensor_batch
                 gc.collect()
                 if DEVICE == "cuda":
                     torch.cuda.empty_cache()
@@ -348,11 +352,15 @@ def main():
                 
                 video_batch_v = video_embeds_v_cpu[v_start:v_end].float().to(DEVICE)
                 video_batch_a = video_embeds_a_cpu[v_start:v_end].float().to(DEVICE)
-                caption_batch = caption_embeds_cpu[v_start:v_end].float().to(DEVICE)
+                c_tensor_batch = caption_tensor_cpu[v_start:v_end].float().to(DEVICE)
                 
                 sim_v = query_batch @ video_batch_v.T
                 sim_a = query_batch @ video_batch_a.T
-                sim_t = query_batch @ caption_batch.T
+                sim_qc = torch.bmm(
+                    query_batch.unsqueeze(1).expand(-1, c_tensor_batch.size(0), -1),
+                    c_tensor_batch.permute(0, 2, 1)
+                )
+                sim_t = sim_qc.max(dim=2).values
                 
                 # Keyword override DISABLED - use learned gating only
                 # query_texts_batch = unique_texts[q_start:q_end]
@@ -389,7 +397,7 @@ def main():
                         all_topk_results[query_idx].extend(candidate_vids)
                         all_topk_results[query_idx] = all_topk_results[query_idx][:TOP_K]
                 
-                del video_batch_v, video_batch_a, caption_batch
+                del video_batch_v, video_batch_a, c_tensor_batch
                 del sim_v, sim_a, sim_t, sim_gated
                 gc.collect()
                 if DEVICE == "cuda":
