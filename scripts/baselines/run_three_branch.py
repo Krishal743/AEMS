@@ -1,6 +1,7 @@
 import json
 import torch
 import clip
+import numpy as np
 from tqdm import tqdm
 from src.encoders.clap_encode import CLAPEncoder
 from src.evaluation.evaluate_retrieval import evaluate_retrieval
@@ -64,6 +65,19 @@ def main():
     
     clip_text = torch.cat(clip_text_list, dim=0)
     
+    print("[CLAP] Encoding query text...")
+    clap_text_list = []
+    for i in tqdm(range(0, len(texts), BATCH_SIZE), desc="CLAP encoding"):
+        batch = texts[i:i + BATCH_SIZE]
+        with torch.no_grad():
+            emb = clap_encoder.encode_text(batch)
+        if isinstance(emb, np.ndarray):
+            emb = torch.from_numpy(emb).float()
+        emb = emb / emb.norm(dim=-1, keepdim=True)
+        clap_text_list.append(emb.cpu())
+    
+    clap_text = torch.cat(clap_text_list, dim=0)
+    
     print("[CAPTION] Computing sim_t (MAX aggregation)...")
     clip_text_device = clip_text.to(DEVICE)
     sim_t_list = []
@@ -78,9 +92,10 @@ def main():
     print("[SIM] Computing sim_v and sim_a...")
     clip_video_dev = clip_video.to(DEVICE).float()
     clap_audio_dev = clap_audio.to(DEVICE).float()
-    clip_text_device = clip_text_device.float()
+    clip_text_device = clip_text.to(DEVICE).float()
+    clap_text_device = clap_text.to(DEVICE).float()
     sim_v = clip_text_device @ clip_video_dev.T
-    sim_a = clip_text_device @ clap_audio_dev.T
+    sim_a = clap_text_device @ clap_audio_dev.T
     
     sim_v = sim_v.cpu()
     sim_a = sim_a.cpu()

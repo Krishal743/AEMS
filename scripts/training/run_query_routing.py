@@ -8,6 +8,7 @@ import gc
 import clip
 import random
 import numpy as np
+from src.encoders.clap_encode import CLAPEncoder
 
 torch.manual_seed(42)
 random.seed(42)
@@ -120,8 +121,25 @@ def main():
     print("[TEXT] Encoding queries on GPU...")
     text_embeds = encode_queries_batched_gpu(clip_model, unique_texts, batch_size=QUERY_BATCH_SIZE)
     print(f"[TEXT] Encodings complete: {text_embeds.shape}")
+
+    print("[CLAP] Encoding queries for audio similarity...")
+    clap_encoder = CLAPEncoder(device=DEVICE)
+    clap_text_list = []
+    for i in range(0, len(unique_texts), QUERY_BATCH_SIZE):
+        batch = unique_texts[i:i+QUERY_BATCH_SIZE]
+        emb = clap_encoder.encode_text(batch)
+        if isinstance(emb, np.ndarray):
+            emb = torch.from_numpy(emb).float()
+        emb = emb / emb.norm(dim=1, keepdim=True)
+        clap_text_list.append(emb.cpu())
+        del emb
+        gc.collect()
+        if DEVICE == "cuda":
+            torch.cuda.empty_cache()
+    text_embeds_clap = torch.cat(clap_text_list, dim=0)
+    print(f"[CLAP] Audio query encodings: {text_embeds_clap.shape}")
     
-    del clip_model
+    del clip_model, clap_encoder
     gc.collect()
     if DEVICE == "cuda":
         torch.cuda.empty_cache()
@@ -149,10 +167,11 @@ def main():
     optimizer = torch.optim.Adam(gating_net.parameters(), lr=LEARNING_RATE)
     
     text_embeds_cpu = text_embeds.cpu()
+    text_embeds_clap_cpu = text_embeds_clap.cpu()
     num_queries = len(unique_video_ids)
     num_videos = len(common_vids)
     
-    del text_embeds
+    del text_embeds, text_embeds_clap
     gc.collect()
     if DEVICE == "cuda":
         torch.cuda.empty_cache()
@@ -186,33 +205,35 @@ def main():
             
             epoch_loss = 0.0
             
-            query_batch = text_embeds_cpu[q_start:q_end].float().to(DEVICE)
-            query_batch.requires_grad_(True)
-            
-            all_sim_v = []
-            all_sim_a = []
-            all_sim_t = []
-            
-            for v_start in range(0, num_videos, VIDEO_BATCH_SIZE):
-                v_end = min(v_start + VIDEO_BATCH_SIZE, num_videos)
+                query_batch = text_embeds_cpu[q_start:q_end].float().to(DEVICE)
+                query_batch_clap = text_embeds_clap_cpu[q_start:q_end].float().to(DEVICE)
+                query_batch.requires_grad_(True)
                 
-                video_batch_v = video_embeds_v_cpu[v_start:v_end].float().to(DEVICE)
-                video_batch_a = video_embeds_a_cpu[v_start:v_end].float().to(DEVICE)
-                c_tensor_batch = caption_tensor_cpu[v_start:v_end].float().to(DEVICE)
+                all_sim_v = []
+                all_sim_a = []
+                all_sim_t = []
                 
-                sim_v = query_batch @ video_batch_v.T
-                sim_a = query_batch @ video_batch_a.T
-                sim_qc = torch.bmm(
-                    query_batch.unsqueeze(1).expand(-1, c_tensor_batch.size(0), -1),
-                    c_tensor_batch.permute(0, 2, 1)
-                )
-                sim_t = sim_qc.max(dim=2).values
-                
-                all_sim_v.append(sim_v)
-                all_sim_a.append(sim_a)
-                all_sim_t.append(sim_t)
-                
-                del video_batch_v, video_batch_a, c_tensor_batch
+                for v_start in range(0, num_videos, VIDEO_BATCH_SIZE):
+                    v_end = min(v_start + VIDEO_BATCH_SIZE, num_videos)
+                    
+                    video_batch_v = video_embeds_v_cpu[v_start:v_end].float().to(DEVICE)
+                    video_batch_a = video_embeds_a_cpu[v_start:v_end].float().to(DEVICE)
+                    c_tensor_batch = caption_tensor_cpu[v_start:v_end].float().to(DEVICE)
+                    
+                    sim_v = query_batch @ video_batch_v.T
+                    # Fix: Use CLAP text encoder for audio similarity
+                    sim_a = query_batch_clap @ video_batch_a.T
+                    sim_qc = torch.bmm(
+                        query_batch.unsqueeze(1).expand(-1, c_tensor_batch.size(0), -1),
+                        c_tensor_batch.permute(0, 2, 1)
+                    )
+                    sim_t = sim_qc.max(dim=2).values
+                    
+                    all_sim_v.append(sim_v)
+                    all_sim_a.append(sim_a)
+                    all_sim_t.append(sim_t)
+                    
+                    del video_batch_v, video_batch_a, c_tensor_batch
                 gc.collect()
                 if DEVICE == "cuda":
                     torch.cuda.empty_cache()
@@ -353,9 +374,11 @@ def main():
                 video_batch_v = video_embeds_v_cpu[v_start:v_end].float().to(DEVICE)
                 video_batch_a = video_embeds_a_cpu[v_start:v_end].float().to(DEVICE)
                 c_tensor_batch = caption_tensor_cpu[v_start:v_end].float().to(DEVICE)
+                query_batch_clap = text_embeds_clap_cpu[q_start:q_end].float().to(DEVICE)
                 
                 sim_v = query_batch @ video_batch_v.T
-                sim_a = query_batch @ video_batch_a.T
+                # Fix: Use CLAP text encoder for audio similarity
+                sim_a = query_batch_clap @ video_batch_a.T
                 sim_qc = torch.bmm(
                     query_batch.unsqueeze(1).expand(-1, c_tensor_batch.size(0), -1),
                     c_tensor_batch.permute(0, 2, 1)

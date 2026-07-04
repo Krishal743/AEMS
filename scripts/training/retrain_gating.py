@@ -4,7 +4,9 @@ import torch.nn as nn
 import torch.nn.functional as F
 import json, gc, os, argparse, random, numpy as np
 import clip
+import numpy as np
 from tqdm import tqdm
+from src.encoders.clap_encode import CLAPEncoder
 
 torch.manual_seed(42)
 random.seed(42)
@@ -162,6 +164,34 @@ def main():
     if DEVICE == "cuda":
         torch.cuda.empty_cache()
 
+    print("[CLAP] Encoding queries for audio similarity...")
+    clap_encoder = CLAPEncoder(device=DEVICE)
+
+    def encode_queries_clap(encoder, texts_list, batch_size=32):
+        all_embeds = []
+        for i in range(0, len(texts_list), batch_size):
+            batch = texts_list[i:i+batch_size]
+            emb = encoder.encode_text(batch)
+            if isinstance(emb, np.ndarray):
+                emb = torch.from_numpy(emb).float()
+            emb = emb / emb.norm(dim=1, keepdim=True)
+            all_embeds.append(emb.cpu())
+            del emb
+            gc.collect()
+            if DEVICE == "cuda":
+                torch.cuda.empty_cache()
+        return torch.cat(all_embeds, dim=0)
+
+    train_text_embeds_clap = encode_queries_clap(clap_encoder, train_texts, batch_size=QUERY_BATCH_SIZE)
+    val_text_embeds_clap = encode_queries_clap(clap_encoder, val_texts, batch_size=QUERY_BATCH_SIZE)
+    test_text_embeds_clap = encode_queries_clap(clap_encoder, test_texts, batch_size=QUERY_BATCH_SIZE)
+    print(f"  Train CLAP: {train_text_embeds_clap.shape}  Val CLAP: {val_text_embeds_clap.shape}  Test CLAP: {test_text_embeds_clap.shape}")
+
+    del clap_encoder
+    gc.collect()
+    if DEVICE == "cuda":
+        torch.cuda.empty_cache()
+
     print("\n[EMB] Building modality matrices on CPU...")
     num_videos = len(train_common_vids)
     video_matrix = torch.stack([to_tensor(video_db[v]) for v in train_common_vids])
@@ -198,7 +228,11 @@ def main():
     train_text_cpu = train_text_embeds.cpu()
     val_text_cpu = val_text_embeds.cpu()
     test_text_cpu = test_text_embeds.cpu()
+    train_text_clap_cpu = train_text_embeds_clap.cpu()
+    val_text_clap_cpu = val_text_embeds_clap.cpu()
+    test_text_clap_cpu = test_text_embeds_clap.cpu()
     del train_text_embeds, val_text_embeds, test_text_embeds
+    del train_text_embeds_clap, val_text_embeds_clap, test_text_embeds_clap
     gc.collect()
 
     num_train = len(train_texts)
@@ -226,6 +260,7 @@ def main():
 
             batch_global_idx = indices[q_start_idx:q_end_idx]
             q_batch = train_text_cpu[batch_global_idx].float().to(DEVICE)
+            q_batch_clap = train_text_clap_cpu[batch_global_idx].float().to(DEVICE)
             q_batch.requires_grad_(True)
 
             all_sim_v, all_sim_t, all_sim_a = [], [], []
@@ -241,7 +276,8 @@ def main():
                     c_tensor.permute(0, 2, 1)
                 )
                 all_sim_t.append(sim_qc.max(dim=2).values)
-                all_sim_a.append(q_batch @ a_batch.T)
+                # Fix: Use CLAP text encoder for audio similarity
+                all_sim_a.append(q_batch_clap @ a_batch.T)
                 del v_batch, a_batch, c_tensor
                 gc.collect()
 
@@ -277,6 +313,7 @@ def main():
         print(f"  Validating...", end="", flush=True)
         with torch.no_grad():
             val_q = val_text_cpu.float().to(DEVICE)
+            val_q_clap = val_text_clap_cpu.float().to(DEVICE)
             w = gate(val_q).cpu()
             val_sim_v = val_q @ video_matrix.float().to(DEVICE).T
             # Fix: max over 20 captions per video
@@ -284,7 +321,8 @@ def main():
             val_q_exp = val_q.unsqueeze(1).expand(-1, val_c.size(0), -1)
             val_qc = torch.bmm(val_q_exp, val_c.permute(0, 2, 1))
             val_sim_t = val_qc.max(dim=2).values
-            val_sim_a = val_q @ audio_matrix.float().to(DEVICE).T
+            # Fix: Use CLAP text encoder for audio similarity
+            val_sim_a = val_q_clap @ audio_matrix.float().to(DEVICE).T
             val_sim_gated = (
                 w[:, 0:1].to(DEVICE) * val_sim_v +
                 w[:, 1:2].to(DEVICE) * val_sim_t +
@@ -331,6 +369,7 @@ def main():
             ("Gated", (test_text_cpu, test_text_vids)),
         ]:
             q = t_cpu.float().to(DEVICE)
+            q_clap = test_text_clap_cpu.float().to(DEVICE)
             w = gate(q).cpu()
             t_sim_v = q @ video_matrix_test.float().to(DEVICE).T
             # Fix: max over 20 captions per video
@@ -338,7 +377,8 @@ def main():
             t_q_exp = q.unsqueeze(1).expand(-1, t_c.size(0), -1)
             t_qc = torch.bmm(t_q_exp, t_c.permute(0, 2, 1))
             t_sim_t = t_qc.max(dim=2).values
-            t_sim_a = q @ audio_matrix_test.float().to(DEVICE).T
+            # Fix: Use CLAP text encoder for audio similarity
+            t_sim_a = q_clap @ audio_matrix_test.float().to(DEVICE).T
             t_sim_gated = (
                 w[:, 0:1].to(DEVICE) * t_sim_v +
                 w[:, 1:2].to(DEVICE) * t_sim_t +
@@ -350,7 +390,7 @@ def main():
             print(f"\n  {label} on test split:")
             print(f"    R@1: {test_metrics['R@1']:.4f}  R@5: {test_metrics['R@5']:.4f}  R@10: {test_metrics['R@10']:.4f}")
 
-            del q, w, t_sim_v, t_sim_t, t_sim_a, t_sim_gated
+            del q, q_clap, w, t_sim_v, t_sim_t, t_sim_a, t_sim_gated
             gc.collect()
 
     mean_weights = []

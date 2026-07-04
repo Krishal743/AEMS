@@ -2,7 +2,9 @@
 
 import sys, json, torch, argparse, os, csv, gc
 import clip
+import numpy as np
 from src.models.gating_network import GatingNetwork
+from src.encoders.clap_encode import CLAPEncoder
 from src.evaluation.evaluate_retrieval import evaluate_retrieval
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
@@ -85,8 +87,19 @@ def main():
         sim_t_list.append(max_sims.cpu())
     sim_t = torch.stack(sim_t_list, dim=1)
 
-    # sim_a temporarily uses CLIP text embeddings (Fix 4 will change this to CLAP)
-    sim_a = text_embeds @ aud_m.T
+    # Fix: Use CLAP text encoder for audio similarity
+    clap_encoder = CLAPEncoder(device=DEVICE)
+    clap_text_list = []
+    for i in range(0, len(test_texts), 256):
+        batch = test_texts[i:i+256]
+        emb = clap_encoder.encode_text(batch)
+        if isinstance(emb, np.ndarray):
+            emb = torch.from_numpy(emb).float()
+        emb = emb / emb.norm(dim=1, keepdim=True)
+        clap_text_list.append(emb.cpu())
+    clap_text_embeds = torch.cat(clap_text_list, dim=0)
+
+    sim_a = clap_text_embeds @ aud_m.T
 
     del caption_test_db
     gc.collect()
