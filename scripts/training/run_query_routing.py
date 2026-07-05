@@ -223,11 +223,8 @@ def main():
                     sim_v = query_batch @ video_batch_v.T
                     # Fix: Use CLAP text encoder for audio similarity
                     sim_a = query_batch_clap @ video_batch_a.T
-                    sim_qc = torch.bmm(
-                        query_batch.unsqueeze(1).expand(-1, c_tensor_batch.size(0), -1),
-                        c_tensor_batch.permute(0, 2, 1)
-                    )
-                    sim_t = sim_qc.max(dim=2).values
+                    sim_qc = (query_batch.unsqueeze(1).unsqueeze(1) * c_tensor_batch.unsqueeze(0)).sum(dim=-1)
+                    sim_t = sim_qc.max(dim=-1).values
                     
                     all_sim_v.append(sim_v)
                     all_sim_a.append(sim_a)
@@ -379,11 +376,8 @@ def main():
                 sim_v = query_batch @ video_batch_v.T
                 # Fix: Use CLAP text encoder for audio similarity
                 sim_a = query_batch_clap @ video_batch_a.T
-                sim_qc = torch.bmm(
-                    query_batch.unsqueeze(1).expand(-1, c_tensor_batch.size(0), -1),
-                    c_tensor_batch.permute(0, 2, 1)
-                )
-                sim_t = sim_qc.max(dim=2).values
+                sim_qc = (query_batch.unsqueeze(1).unsqueeze(1) * c_tensor_batch.unsqueeze(0)).sum(dim=-1)
+                sim_t = sim_qc.max(dim=-1).values
                 
                 # Keyword override DISABLED - use learned gating only
                 # query_texts_batch = unique_texts[q_start:q_end]

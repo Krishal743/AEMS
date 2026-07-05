@@ -196,10 +196,17 @@ def main():
     num_videos = len(train_common_vids)
     video_matrix = torch.stack([to_tensor(video_db[v]) for v in train_common_vids])
     audio_matrix = torch.stack([to_tensor(audio_db[v]) for v in train_common_vids])
-    # Fix: keep all 20 captions per video
-    caption_tensor = torch.stack([
-        F.normalize(to_tensor(caption_train_db[v]), p=2, dim=1) for v in train_common_vids
-    ])
+    # Fix: keep all captions per video (handle variable caption counts)
+    caption_list = [F.normalize(to_tensor(caption_train_db[v]), p=2, dim=1) for v in train_common_vids]
+    max_caps_train = max(c.shape[0] for c in caption_list)
+    cap_padded_train = []
+    for c in caption_list:
+        n = c.shape[0]
+        if n < max_caps_train:
+            pad = torch.zeros(max_caps_train - n, c.shape[1])
+            c = torch.cat([c, pad], dim=0)
+        cap_padded_train.append(c)
+    caption_tensor = torch.stack(cap_padded_train)
     video_matrix = F.normalize(video_matrix, p=2, dim=1)
     audio_matrix = F.normalize(audio_matrix, p=2, dim=1)
     print(f"  Train modality matrices: {video_matrix.shape} each")
@@ -208,10 +215,17 @@ def main():
     num_test_videos = len(test_common_vids)
     video_matrix_test = torch.stack([to_tensor(video_db[v]) for v in test_common_vids])
     audio_matrix_test = torch.stack([to_tensor(audio_db[v]) for v in test_common_vids])
-    # Fix: keep all 20 test captions per video
-    caption_tensor_test = torch.stack([
-        F.normalize(to_tensor(caption_test_db[v]), p=2, dim=1) for v in test_common_vids
-    ])
+    # Fix: keep all test caption per video (handle variable caption counts)
+    caption_list_test = [F.normalize(to_tensor(caption_test_db[v]), p=2, dim=1) for v in test_common_vids]
+    max_caps = max(c.shape[0] for c in caption_list_test)
+    cap_padded = []
+    for c in caption_list_test:
+        n = c.shape[0]
+        if n < max_caps:
+            pad = torch.zeros(max_caps - n, c.shape[1])
+            c = torch.cat([c, pad], dim=0)
+        cap_padded.append(c)
+    caption_tensor_test = torch.stack(cap_padded)
     video_matrix_test = F.normalize(video_matrix_test, p=2, dim=1)
     audio_matrix_test = F.normalize(audio_matrix_test, p=2, dim=1)
     print(f"  Test modality matrices:  {video_matrix_test.shape} each")
@@ -270,12 +284,9 @@ def main():
                 a_batch = audio_matrix[v_start:v_end].float().to(DEVICE)
                 c_tensor = caption_tensor[v_start:v_end].float().to(DEVICE)
                 all_sim_v.append(q_batch @ v_batch.T)
-                # Fix: max over 20 captions per video
-                sim_qc = torch.bmm(
-                    q_batch.unsqueeze(1).expand(-1, c_tensor.size(0), -1),
-                    c_tensor.permute(0, 2, 1)
-                )
-                all_sim_t.append(sim_qc.max(dim=2).values)
+                # Fix: max over captions per video (broadcast over queries and videos)
+                sim_qc = (q_batch.unsqueeze(1).unsqueeze(1) * c_tensor.unsqueeze(0)).sum(dim=-1)
+                all_sim_t.append(sim_qc.max(dim=-1).values)
                 # Fix: Use CLAP text encoder for audio similarity
                 all_sim_a.append(q_batch_clap @ a_batch.T)
                 del v_batch, a_batch, c_tensor
@@ -312,29 +323,60 @@ def main():
         gate.eval()
         print(f"  Validating...", end="", flush=True)
         with torch.no_grad():
-            val_q = val_text_cpu.float().to(DEVICE)
-            val_q_clap = val_text_clap_cpu.float().to(DEVICE)
-            w = gate(val_q).cpu()
-            val_sim_v = val_q @ video_matrix.float().to(DEVICE).T
-            # Fix: max over 20 captions per video
-            val_c = caption_tensor.float().to(DEVICE)
-            val_q_exp = val_q.unsqueeze(1).expand(-1, val_c.size(0), -1)
-            val_qc = torch.bmm(val_q_exp, val_c.permute(0, 2, 1))
-            val_sim_t = val_qc.max(dim=2).values
-            # Fix: Use CLAP text encoder for audio similarity
-            val_sim_a = val_q_clap @ audio_matrix.float().to(DEVICE).T
+            val_q = val_text_cpu.float()
+            val_q_clap = val_text_clap_cpu.float()
+            
+            all_sim_v, all_sim_t, all_sim_a = [], [], []
+            for v_start in range(0, num_videos, VIDEO_BATCH_SIZE):
+                v_end = min(v_start + VIDEO_BATCH_SIZE, num_videos)
+                v_batch = video_matrix[v_start:v_end].float()
+                a_batch = audio_matrix[v_start:v_end].float()
+                c_batch = caption_tensor[v_start:v_end].float()
+                
+                # Process queries in mini-batches to avoid OOM
+                q_batch_sim_v, q_batch_sim_t, q_batch_sim_a = [], [], []
+                for q_start in range(0, val_q.size(0), QUERY_BATCH_SIZE):
+                    q_end = min(q_start + QUERY_BATCH_SIZE, val_q.size(0))
+                    q_part = val_q[q_start:q_end].to(DEVICE)
+                    q_clap_part = val_q_clap[q_start:q_end].to(DEVICE)
+                    v_part = v_batch.to(DEVICE)
+                    a_part = a_batch.to(DEVICE)
+                    c_part = c_batch.to(DEVICE)
+                    
+                    sim_v = q_part @ v_part.T
+                    sim_qc = (q_part.unsqueeze(1).unsqueeze(1) * c_part.unsqueeze(0)).sum(dim=-1)
+                    sim_t = sim_qc.max(dim=-1).values
+                    sim_a = q_clap_part @ a_part.T
+                    
+                    q_batch_sim_v.append(sim_v.cpu())
+                    q_batch_sim_t.append(sim_t.cpu())
+                    q_batch_sim_a.append(sim_a.cpu())
+                    del q_part, q_clap_part, v_part, a_part, c_part, sim_v, sim_t, sim_a
+                    gc.collect()
+                
+                all_sim_v.append(torch.cat(q_batch_sim_v, dim=0))
+                all_sim_t.append(torch.cat(q_batch_sim_t, dim=0))
+                all_sim_a.append(torch.cat(q_batch_sim_a, dim=0))
+                del v_batch, a_batch, c_batch, q_batch_sim_v, q_batch_sim_t, q_batch_sim_a
+                gc.collect()
+            
+            val_sim_v = torch.cat(all_sim_v, dim=1)
+            val_sim_t = torch.cat(all_sim_t, dim=1)
+            val_sim_a = torch.cat(all_sim_a, dim=1)
+            del all_sim_v, all_sim_t, all_sim_a
+            gc.collect()
+            
+            w = gate(val_q.to(DEVICE)).cpu()
             val_sim_gated = (
-                w[:, 0:1].to(DEVICE) * val_sim_v +
-                w[:, 1:2].to(DEVICE) * val_sim_t +
-                w[:, 2:3].to(DEVICE) * val_sim_a
+                w[:, 0:1] * val_sim_v +
+                w[:, 1:2] * val_sim_t +
+                w[:, 2:3] * val_sim_a
             )
             val_metrics = evaluate_retrieval(
-                val_sim_gated.cpu(), val_vids, train_common_vids, ks=[1, 5, 10]
+                val_sim_gated, val_vids, train_common_vids, ks=[1, 5, 10]
             )
-            del val_q, w, val_sim_v, val_sim_t, val_sim_a, val_sim_gated
+            del val_q, val_q_clap, w, val_sim_v, val_sim_t, val_sim_a, val_sim_gated
             gc.collect()
-            if DEVICE == "cuda":
-                torch.cuda.empty_cache()
 
         print(f"  Val R@1: {val_metrics['R@1']:.4f}  R@5: {val_metrics['R@5']:.4f}  R@10: {val_metrics['R@10']:.4f}")
 
@@ -368,28 +410,61 @@ def main():
         for label, (t_cpu, v_list) in [
             ("Gated", (test_text_cpu, test_text_vids)),
         ]:
-            q = t_cpu.float().to(DEVICE)
-            q_clap = test_text_clap_cpu.float().to(DEVICE)
-            w = gate(q).cpu()
-            t_sim_v = q @ video_matrix_test.float().to(DEVICE).T
-            # Fix: max over 20 captions per video
-            t_c = caption_tensor_test.float().to(DEVICE)
-            t_q_exp = q.unsqueeze(1).expand(-1, t_c.size(0), -1)
-            t_qc = torch.bmm(t_q_exp, t_c.permute(0, 2, 1))
-            t_sim_t = t_qc.max(dim=2).values
-            # Fix: Use CLAP text encoder for audio similarity
-            t_sim_a = q_clap @ audio_matrix_test.float().to(DEVICE).T
+            q = t_cpu.float()
+            q_clap = test_text_clap_cpu.float()
+            
+            all_sim_v, all_sim_t, all_sim_a = [], [], []
+            num_test_videos = len(test_common_vids)
+            for v_start in range(0, num_test_videos, VIDEO_BATCH_SIZE):
+                v_end = min(v_start + VIDEO_BATCH_SIZE, num_test_videos)
+                v_batch = video_matrix_test[v_start:v_end].float()
+                a_batch = audio_matrix_test[v_start:v_end].float()
+                c_batch = caption_tensor_test[v_start:v_end].float()
+                
+                q_batch_sim_v, q_batch_sim_t, q_batch_sim_a = [], [], []
+                for q_start in range(0, q.size(0), QUERY_BATCH_SIZE):
+                    q_end = min(q_start + QUERY_BATCH_SIZE, q.size(0))
+                    q_part = q[q_start:q_end].to(DEVICE)
+                    q_clap_part = q_clap[q_start:q_end].to(DEVICE)
+                    v_part = v_batch.to(DEVICE)
+                    a_part = a_batch.to(DEVICE)
+                    c_part = c_batch.to(DEVICE)
+                    
+                    sim_v = q_part @ v_part.T
+                    sim_qc = (q_part.unsqueeze(1).unsqueeze(1) * c_part.unsqueeze(0)).sum(dim=-1)
+                    sim_t = sim_qc.max(dim=-1).values
+                    sim_a = q_clap_part @ a_part.T
+                    
+                    q_batch_sim_v.append(sim_v.cpu())
+                    q_batch_sim_t.append(sim_t.cpu())
+                    q_batch_sim_a.append(sim_a.cpu())
+                    del q_part, q_clap_part, v_part, a_part, c_part, sim_v, sim_t, sim_a
+                    gc.collect()
+                
+                all_sim_v.append(torch.cat(q_batch_sim_v, dim=0))
+                all_sim_t.append(torch.cat(q_batch_sim_t, dim=0))
+                all_sim_a.append(torch.cat(q_batch_sim_a, dim=0))
+                del v_batch, a_batch, c_batch, q_batch_sim_v, q_batch_sim_t, q_batch_sim_a
+                gc.collect()
+            
+            t_sim_v = torch.cat(all_sim_v, dim=1)
+            t_sim_t = torch.cat(all_sim_t, dim=1)
+            t_sim_a = torch.cat(all_sim_a, dim=1)
+            del all_sim_v, all_sim_t, all_sim_a
+            gc.collect()
+            
+            w = gate(q.to(DEVICE)).cpu()
             t_sim_gated = (
-                w[:, 0:1].to(DEVICE) * t_sim_v +
-                w[:, 1:2].to(DEVICE) * t_sim_t +
-                w[:, 2:3].to(DEVICE) * t_sim_a
+                w[:, 0:1] * t_sim_v +
+                w[:, 1:2] * t_sim_t +
+                w[:, 2:3] * t_sim_a
             )
             test_metrics = evaluate_retrieval(
-                t_sim_gated.cpu(), test_text_vids, test_common_vids, ks=[1, 5, 10]
+                t_sim_gated, test_text_vids, test_common_vids, ks=[1, 5, 10]
             )
             print(f"\n  {label} on test split:")
             print(f"    R@1: {test_metrics['R@1']:.4f}  R@5: {test_metrics['R@5']:.4f}  R@10: {test_metrics['R@10']:.4f}")
-
+            
             del q, q_clap, w, t_sim_v, t_sim_t, t_sim_a, t_sim_gated
             gc.collect()
 
