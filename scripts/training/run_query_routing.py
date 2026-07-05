@@ -30,10 +30,10 @@ NUM_TRAIN_QUERIES = 300
 CURRICULUM_EPOCHS = 0.0  # Disable curriculum (use ranking only)
 MODALITY_DROPOUT_PROB = 0.0  # Disable for clean ranking loss
 
-# Loss weights for decisive routing
-ENTROPY_PENALTY = 0.05  # Reduced
-ALIGNMENT_REWARD = 0.1  # Reduced
-CAPTION_PENALTY = 0.70  # Keep 0.7
+# All zero — heuristic penalties removed per recovery plan
+ENTROPY_PENALTY = 0.0
+ALIGNMENT_REWARD = 0.0
+CAPTION_PENALTY = 0.0
 
 VISUAL_KEYWORDS = {"car", "person", "scene", "red", "blue", "building", "sky", "dog", "cat", "water", "face", "road", "tree", "mountain", "indoor", "outdoor", "city", "street", "room", "beach", "field", "forest", "desk", "chair", "table", "window", "floor", "wall", "car", "truck", "bus", "bike", "motorcycle", "boat", "airplane", "helicopter", "plane", "bird", "horse", "cow", "sheep", "elephant", "lion", "tiger", "bear", "fish", "snake", "lizard", "frog", "butterfly", "bee", "ant", "spider", "crab", "shark", "whale", "dolphin", "child", "adult", "man", "woman", "boy", "girl", "people", "crowd", "soldier", "police", "doctor", "nurse", "chef", "driver", "pilot", "singer", "dancer", "actor", "athlete", "student", "teacher"}
 
@@ -255,12 +255,9 @@ def main():
             
             weights = gating_net(query_batch)
             
-            # Apply caption penalty (reduce caption dominance)
-            sim_t_penalized = all_sim_t * (1 - CAPTION_PENALTY)
-            
             sim_gated = (
                 weights[:, 0:1] * (all_sim_v * mask_v) +
-                weights[:, 1:2] * (sim_t_penalized * mask_t) +
+                weights[:, 1:2] * (all_sim_t * mask_t) +
                 weights[:, 2:3] * (all_sim_a * mask_a)
             )
             
@@ -293,36 +290,8 @@ def main():
             ranking_loss = torch.stack(ranking_losses).mean() if ranking_losses else 0
             ranking_loss = ranking_loss * 3.0  # Stronger weight
             
-            # Entropy penalty: penalize uniform weights (encourage decisive routing)
-            entropy = -(weights * torch.log(weights + 1e-8)).sum(dim=1).mean()
-            entropy_loss = -ENTROPY_PENALTY * entropy
-            
-            # Alignment reward: encourage highest weight to match highest similarity
-            # For each query, find which modality has highest sim for correct video
-            batch_indices = torch.arange(q_start, q_end).to(DEVICE)
-            correct_sim_v = all_sim_v[torch.arange(len(batch_indices)), batch_indices]
-            correct_sim_t = all_sim_t[torch.arange(len(batch_indices)), batch_indices]
-            correct_sim_a = all_sim_a[torch.arange(len(batch_indices)), batch_indices]
-            
-            # Stack and find argmax
-            correct_sims = torch.stack([correct_sim_v, correct_sim_t, correct_sim_a], dim=1)
-            best_modality = torch.argmax(correct_sims, dim=1)
-            
-            # Align: highest weight should match best modality
-            alignment_targets = torch.zeros_like(weights)
-            alignment_targets[torch.arange(len(weights)), best_modality] = 1.0
-            
-            alignment_loss = nn.MSELoss()(weights, alignment_targets)
-            alignment_loss = 0.1 * alignment_loss  # Reduced weight
-            
-            # Total loss: ranking + entropy + weak alignment + caption weight penalty
-            epoch_loss = ranking_loss + entropy_loss + alignment_loss
-            
-            # Explicit penalty: discourage high caption weight
-            # If w_t > 0.5, add penalty
-            if weights[:, 1].mean() > 0.5:
-                caption_weight_penalty = 0.5 * (weights[:, 1].mean() - 0.5) ** 2
-                epoch_loss = epoch_loss + caption_weight_penalty
+            # All heuristic penalties removed per recovery plan (zero)
+            epoch_loss = ranking_loss
             
             epoch_loss.backward(retain_graph=True)
             optimizer.step()
