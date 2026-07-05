@@ -14,17 +14,19 @@ The `valid_mask` filtering logic at lines 51–53 incorrectly deduplicates capti
 
 `caption_embeddings.pt` only stores test split videos (2,990). The gating script needs train split caption embeddings (7,010 videos) to train.
 
+**Status: Resolved — not root cause.** Re-training with properly split caption pairs (train vs test) produced identical collapsed weights (w_v ≈ 0.015, w_a ≈ 0.535 on transformer embeddings). The gating collapse is confirmed to be an architectural limitation, not a data bug.
+
 **Fix**: Either:
 - (a) Precompute caption embeddings for the train split: `scripts/embeddings/precompute_caption_embeddings.py` with `--split train`
 - (b) Encode train text queries on-the-fly with CLIP and cache to disk
 
-## Bug 3: run_final_eval.sh references wrong gate weight paths (FIXED)
+## Bug 3: run_final_eval.sh references wrong gate weight paths ✅ Fixed
 
 **File**: `scripts/evaluation/run_final_eval.sh`
 
 The original script referenced `eval_results/gating_weights_old.pth` and `eval_results/gating_weights_transformer.pth` — paths that didn't exist.
 
-**Status**: Fixed during restructuring — paths now point to `models/`.
+**Status**: ✅ Fixed during restructuring — paths now point to `models/`.
 
 ## Bug 4: Audio retrieval near-zero R@1
 
@@ -32,8 +34,8 @@ Audio retrieval R@1 ≈ 0.0003 — 12% of test entries had no matching audio emb
 
 **Partially fixed**: Filtered test entries to only include videos present in `audio_embeddings.pt`. Root cause may be a CLAP encoding issue.
 
-## Bug 5: LEXICON_LOGGING undefined in run_query_routing.py (FIXED)
+## Bug 5: LEXICON_LOGGING undefined in run_query_routing.py ✅ Fixed
 
 A variable `LEXICON_LOGGING` was used in the curriculum phase check but never defined.
 
-**Status**: Fixed during restructuring — defaults to `False`.
+**Status**: ✅ Fixed during restructuring — defaults to `False`.

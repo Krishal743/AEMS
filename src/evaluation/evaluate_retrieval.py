@@ -1,6 +1,14 @@
 import torch
 
 def evaluate_retrieval(similarity_matrix, text_video_ids, video_ids, ks=[1, 5, 10]):
+    if similarity_matrix.size(0) != len(text_video_ids):
+        raise ValueError(
+            f"Similarity rows ({similarity_matrix.size(0)}) != text_video_ids ({len(text_video_ids)})"
+        )
+    if similarity_matrix.size(1) != len(video_ids):
+        raise ValueError(
+            f"Similarity columns ({similarity_matrix.size(1)}) != video_ids ({len(video_ids)})"
+        )
     results = {}
     for k in ks:
         results[f"R@{k}"] = 0.0

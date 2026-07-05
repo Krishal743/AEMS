@@ -7,7 +7,12 @@ download → parse_captions → extract_frames → extract_audio
   → precompute video/audio/caption embeddings
   → baselines (CLIP, CLAP, fusion, three-branch)
   → temporal transformer training / gating network training
-  → final multimodal evaluation
+  → final evaluation
+  → multi-query retrieval (Phase 2b)
+  → explainability demo
+  → behavioural verification
+  → final evaluation (gate-weights)
+  → ablation study
 ```
 
 ## Step-by-Step
@@ -85,3 +90,29 @@ Output: `embeddings/video_embeddings_transformer.pt`, `models/temporal_transform
 bash scripts/evaluation/run_final_eval.sh
 ```
 Output: `outputs/eval/`
+
+### 10. Multi-query retrieval (Phase 2b)
+```bash
+python3 scripts/queries/query_text.py --query "your text"
+python3 scripts/queries/query_mixed.py --text "your text" --image /path/to/image.jpg  (--image optional)
+```
+
+### 11. Explainability demo
+```bash
+python3 scripts/demo/demo.py --query "your text" --top-k 5
+```
+
+### 12. Behavioural verification
+```bash
+python3 scripts/evaluation/behavioural_test.py
+```
+
+### 13. Final evaluation
+```bash
+python3 scripts/evaluation/final_eval.py --gate-weights models/gating_weights_meanpool.pth
+```
+
+### 14. Ablation study
+```bash
+python3 scripts/evaluation/ablation_study.py --gate-weights models/gating_weights_meanpool.pth
+```

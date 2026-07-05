@@ -8,6 +8,7 @@ set -e
 # ============================================================
 
 source venv/bin/activate
+export PYTHONPATH="${PYTHONPATH}:$(pwd)"
 mkdir -p outputs/eval
 
 echo "============================================================"

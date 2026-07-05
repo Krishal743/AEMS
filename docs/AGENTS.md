@@ -4,6 +4,7 @@
 
 ```bash
 source venv/bin/activate
+export PYTHONPATH="${PYTHONPATH}:$(pwd)"
 python scripts/<category>/<name>.py
 ```
 
@@ -22,14 +23,20 @@ team23/
 │   ├── data/
 │   │   ├── datasets.py        # MSRVTTDataset (PyTorch Dataset)
 │   │   └── metadata.py        # JSON loading, split filtering, common video ID utils
-│   └── evaluation/
-│       └── evaluate_retrieval.py  # evaluate_retrieval(sim_matrix, ...)
+│   ├── evaluation/
+│   │   └── evaluate_retrieval.py  # evaluate_retrieval(sim_matrix, ...)
+│   ├── explainability/        # Explainability module
+│   │   └── explain_retrieval.py
+│   └── routing/               # Query routing
+│       └── query_router.py
 ├── scripts/
 │   ├── data/                  # Data preparation
 │   ├── embeddings/            # Embedding precomputation
 │   ├── baselines/             # Single-modality/fusion baselines
 │   ├── training/              # Model training (gating, transformer)
 │   ├── evaluation/            # Evaluation & orchestration
+│   ├── queries/               # Query scripts with explainability
+│   ├── demo/                  # Interactive demo
 │   └── verification/          # Diagnostics & verification
 ├── configs/                   # YAML config files (future use)
 ├── data/                      # Raw & processed data (gitignored)
@@ -41,14 +48,25 @@ team23/
 └── docs/                      # Documentation
 ```
 
-## Pipeline order
+## Pipeline order / Data flow
 
-download → parse_captions → extract_frames (or extract_uniform_frames) → extract_audio → precompute_video/audio/caption embeddings → baselines/training
+download → parse_captions → extract_frames (or extract_uniform_frames) → extract_audio → precompute_video/audio/caption embeddings → baselines/training → queries/demo
+
+The query scripts (`scripts/queries/`) and demo (`scripts/demo/`) sit at the end of the pipeline. They load precomputed embeddings and trained gating weights, perform retrieval with explainability, and output ranked results with per-modality contribution breakdowns.
 
 ## Key scripts
 
 | Category | Script | Purpose |
 |---|---|---|
+| **Queries** | `scripts/queries/query_text.py` | Text query with explainability |
+| | `scripts/queries/query_image.py` | Image query with explainability |
+| | `scripts/queries/query_audio.py` | Audio query with explainability |
+| | `scripts/queries/query_video.py` | Video query with explainability |
+| | `scripts/queries/query_mixed.py` | Mixed text+image query |
+| **Evaluation** | `scripts/evaluation/final_eval.py` | Unified 5-system evaluation |
+| | `scripts/evaluation/ablation_study.py` | 11-way ablation study |
+| | `scripts/evaluation/behavioural_test.py` | Gating behaviour verification |
+| **Demo** | `scripts/demo/demo.py` | Interactive text query demo with explanations |
 | **Data prep** | `scripts/data/download_msrvtt.py` | Download MSR-VTT from HuggingFace |
 | | `scripts/data/parse_msrvtt_captions.py` | Parse annotations, build metadata JSON |
 | | `scripts/data/extract_frames_msrvtt.py` | Frames via ffmpeg (fps=1, max=15) |
@@ -63,9 +81,6 @@ download → parse_captions → extract_frames (or extract_uniform_frames) → e
 | | `scripts/baselines/run_clap_baseline.py` | CLAP audio-only baseline |
 | | `scripts/baselines/run_fusion_baseline.py` | Equal-weight fusion baseline |
 | | `scripts/baselines/run_three_branch.py` | All 3 branches + equal fusion |
-| **Evaluation** | `scripts/evaluation/eval_multimodal.py` | Multimodal eval with optional gating |
-| | `scripts/evaluation/eval_transformer_baseline.py` | Transformer visual-only eval |
-| | `scripts/evaluation/run_final_eval.sh` | Orchestrated post-training eval suite |
 | **Verification** | `scripts/verification/verify_gating.py` | Check gating weights vs keyword expectations |
 | | `scripts/verification/diagnose_loss.py` | Debug loss/weight behavior during gating training |
 
@@ -81,6 +96,8 @@ from src.data.metadata import load_metadata, get_common_video_ids
 from src.models.gating_network import GatingNetwork
 from src.models.temporal_transformer import TemporalTransformer
 from src.config import DEVICE, set_seeds, clear_gpu
+from src.explainability.explain_retrieval import explain_modality_contributions, explain_gating_decision, format_explanation
+from src.routing.query_router import compute_modal_similarities
 ```
 
 ## Embedding DBs
@@ -149,3 +166,4 @@ See `requirements.txt`. Key non-obvious ones:
 - All models in `src/models/`, all encoders in `src/encoders/`
 - Shared config in `src/config.py`, file-specific overrides stay in the script
 - Seeds: `set_seeds(42)` from `src.config`
+- Always set `PYTHONPATH` before running: `export PYTHONPATH="${PYTHONPATH}:$(pwd)"`
