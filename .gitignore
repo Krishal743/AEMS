@@ -66,3 +66,10 @@ RF-session-*.md
 agent/
 .opencode/
 skills-lock.json
+
+# ===== aems next-dataset project =====
+# Track aems/ code (pyproject.toml, uv.lock, .python-version, aems/aems/__main__.py)
+# but exclude the bulky dataset and any local venv.
+/aems/dataset/
+/aems/.venv/
+aems.egg-info

@@ -1,0 +1,12 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "aems"
+version = "1.0.0"
+description = "Adaptive Explainable Multimodal Search"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["src*"]
