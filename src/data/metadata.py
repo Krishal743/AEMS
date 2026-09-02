@@ -1,7 +1,7 @@
 import json
 
 
-def load_metadata(path="data/processed/metadata/msrvtt_metadata.json"):
+def load_metadata(path="data/processed/aems/metadata/aems_manifest_v1.json"):
     with open(path) as f:
         return json.load(f)
 

@@ -1,6 +1,6 @@
 """Audio-to-video retrieval with explainability."""
 
-import sys, json, torch, argparse, librosa
+import torch, argparse, librosa
 from src.models.gating_network import GatingNetwork
 from src.encoders.clap_encode import CLAPEncoder
 from src.explainability.explain_retrieval import (
@@ -29,7 +29,9 @@ def main():
     parser.add_argument("--audio", required=True)
     parser.add_argument("--video-embeds", default="embeddings/video_embeddings.pt")
     parser.add_argument("--audio-embeds", default="embeddings/audio_embeddings.pt")
-    parser.add_argument("--caption-embeds", default="embeddings/caption_embeddings_test.pt")
+    parser.add_argument(
+        "--caption-embeds", default="embeddings/caption_embeddings_test.pt"
+    )
     parser.add_argument("--gate-weights", default="models/gating_weights_meanpool.pth")
     parser.add_argument("--top-k", type=int, default=5)
     args = parser.parse_args()
@@ -45,7 +47,9 @@ def main():
 
     vid_m = torch.stack([torch.as_tensor(video_db[v]).float() for v in common])
     aud_m = torch.stack([torch.as_tensor(audio_db[v]).float() for v in common])
-    cap_m = torch.stack([torch.as_tensor(caption_db[v]).float().max(dim=0)[0] for v in common])
+    cap_m = torch.stack(
+        [torch.as_tensor(caption_db[v]).float().max(dim=0)[0] for v in common]
+    )
     vid_m = torch.nn.functional.normalize(vid_m, p=2, dim=1)
     aud_m = torch.nn.functional.normalize(aud_m, p=2, dim=1)
     cap_m = torch.nn.functional.normalize(cap_m, p=2, dim=1)
@@ -59,7 +63,9 @@ def main():
         w = gate(query_emb.to(DEVICE)).cpu().squeeze(0)
 
     gating_info = explain_gating_decision(w)
-    contributions = explain_modality_contributions(w, sim_v, sim_t, sim_a, common, top_k=args.top_k)
+    contributions = explain_modality_contributions(
+        w, sim_v, sim_t, sim_a, common, top_k=args.top_k
+    )
 
     output = format_explanation(contributions, gating_info, top_k=args.top_k)
     print(output)

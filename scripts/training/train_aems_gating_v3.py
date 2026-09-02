@@ -1,9 +1,8 @@
-import argparse, json, gc, os
+import argparse, gc
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import clip
-import random
 import numpy as np
 from src.encoders.clap_encode import CLAPEncoder
 from src.models.gating_network import GatingNetwork
@@ -13,40 +12,34 @@ from src.config import (AEMS_MANIFEST_PATH, AEMS_VID_EMBEDDINGS_PATH, AEMS_AUDIO
                          DEVICE, set_seeds)
 from src.data.metadata import load_metadata, filter_by_split
 
+
 def angular_similarity(query_emb, video_emb, temperature=1.0):
-    """
-    Compute angular similarity between query and video embeddings
-    Angular similarity = 1 - angle/π = 1 - arccos(cosine_similarity)/π
-    Temperature scaling can be applied to focus on top matches
-    """
     cosine_sim = query_emb @ video_emb.T
-    # Compute angular similarity
     angular_sim = 1 - torch.acos(torch.clamp(cosine_sim, -1, 1)) / np.pi
-    # Apply temperature scaling
     if temperature != 1.0:
         angular_sim = angular_sim / temperature
     return angular_sim
+
 
 set_seeds(42)
 
 QUERY_BATCH_SIZE = 32
 VIDEO_BATCH_SIZE = 100
-TOP_K = 10
-NUM_EPOCHS = 15
+NUM_EPOCHS = 30
 LEARNING_RATE = 1e-3
-RANKING_MARGIN = 0.2
-NUM_NEGATIVES = 10
+WEIGHT_DECAY = 1e-5
+GRAD_CLIP = 1.0
+WARMUP_EPOCHS = 2
 
-# Priority 1 Optimizations
-ANGULAR_SIMILARITY = True  # Use angular similarity instead of cosine
-TEMPERATURE_AUDIO = 0.5  # Temperature scaling for audio similarities
-TEMPERANCE_TEXT = 1.0  # Temperature scaling for text similarities
-TEMPERANCE_VISUAL = 1.0  # Temperature scaling for visual similarities
-MODALITY_SCALE_AUDIO = 0.8  # Scale factor for audio normalization
-MODALITY_SCALE_TEXT = 1.0  # Scale factor for text normalization
-MODALITY_SCALE_VISUAL = 1.0  # Scale factor for visual normalization
+ANGULAR_SIMILARITY = True
+TEMPERATURE_AUDIO = 0.5
+TEMPERANCE_TEXT = 1.0
+TEMPERANCE_VISUAL = 1.0
+MODALITY_SCALE_AUDIO = 0.8
+MODALITY_SCALE_TEXT = 1.0
+MODALITY_SCALE_VISUAL = 1.0
 
-parser = argparse.ArgumentParser(description="Train AEMS Gating Network")
+parser = argparse.ArgumentParser(description="Train AEMS Gating Network v3 (Query-Level)")
 parser.add_argument("--manifest", type=str, default=AEMS_MANIFEST_PATH)
 parser.add_argument("--video-embeds", type=str, default=AEMS_VID_EMBEDDINGS_PATH)
 parser.add_argument("--audio-embeds", type=str, default=AEMS_AUDIO_EMBEDDINGS_PATH)
@@ -173,35 +166,45 @@ print("[CLAP] Encoding train queries...", flush=True)
 train_query_clap = encode_clap_queries(train_queries)
 print(f"  Train CLAP queries: {train_query_clap.shape}", flush=True)
 
+print("[CLIP] Encoding test queries...", flush=True)
+test_query_clip = encode_clip_queries(test_queries)
+print(f"  Test CLIP queries: {test_query_clip.shape}", flush=True)
+
+print("[CLAP] Encoding test queries...", flush=True)
+test_query_clap = encode_clap_queries(test_queries)
+print(f"  Test CLAP queries: {test_query_clap.shape}", flush=True)
+
 del clip_model, clap_encoder
 gc.collect()
 torch.cuda.empty_cache()
 
 video_id_to_idx = {vid: i for i, vid in enumerate(common_vids_all)}
-
-gating_net = GatingNetwork(text_dim=512, hidden_dim=128).to(DEVICE)
-optimizer = torch.optim.Adam(gating_net.parameters(), lr=LEARNING_RATE)
-
 num_train = len(train_queries)
 num_candidates = len(common_vids_all)
-print(f"\n[TRAIN] Training gating network for {args.epochs} epochs ({num_candidates} candidates)...", flush=True)
 
-# Print Priority 1 Optimizations
-print("[OPTIMIZATIONS] Priority 1 Optimizations:", flush=True)
-print(f"  - Angular Similarity: {ANGULAR_SIMILARITY}", flush=True)
-if ANGULAR_SIMILARITY:
-    print(f"  - Temperature (Audio): {TEMPERATURE_AUDIO}", flush=True)
-    print(f"  - Temperature (Text): {TEMPERANCE_TEXT}", flush=True)
-    print(f"  - Temperature (Visual): {TEMPERANCE_VISUAL}", flush=True)
-    print(f"  - Modality Scale (Audio): {MODALITY_SCALE_AUDIO}", flush=True)
-    print(f"  - Modality Scale (Text): {MODALITY_SCALE_TEXT}", flush=True)
-    print(f"  - Modality Scale (Visual): {MODALITY_SCALE_VISUAL}", flush=True)
+# Query-level gating: takes CLIP query embedding (512-d), outputs 3 weights
+gating_net = GatingNetwork(input_dim=512, hidden_dim=128, num_modalities=3, dropout=0.3).to(DEVICE)
+optimizer = torch.optim.AdamW(gating_net.parameters(), lr=LEARNING_RATE, weight_decay=WEIGHT_DECAY)
+
+print(f"\n[TRAIN] Training QUERY-LEVEL gating network for {args.epochs} epochs...", flush=True)
+print("[DESIGN] Query-level gating: CLIP embedding -> MLP -> 3 weights per query", flush=True)
+print(f"  Architecture: 512->128->64->3 + residual + LayerNorm + Dropout(0.3)", flush=True)
+print(f"  Loss: Cross-entropy over {num_candidates} candidates", flush=True)
+print(f"  LR: {LEARNING_RATE}, Weight decay: {WEIGHT_DECAY}", flush=True)
 
 for epoch in range(args.epochs):
     gating_net.train()
     total_loss = torch.tensor(0.0, device=DEVICE)
     num_batches = 0
     indices = torch.randperm(num_train)
+
+    if epoch < WARMUP_EPOCHS:
+        warmup_factor = (epoch + 1) / WARMUP_EPOCHS
+        for pg in optimizer.param_groups:
+            pg['lr'] = LEARNING_RATE * warmup_factor
+    else:
+        for pg in optimizer.param_groups:
+            pg['lr'] = LEARNING_RATE
 
     for q_start in range(0, num_train, QUERY_BATCH_SIZE):
         q_end = min(q_start + QUERY_BATCH_SIZE, num_train)
@@ -213,18 +216,20 @@ for epoch in range(args.epochs):
         query_batch = train_query_clip[batch_indices].float().to(DEVICE)
         query_batch_clap = train_query_clap[batch_indices].float().to(DEVICE)
 
+        # Query-level weights: (batch, 3) — same weights for all candidates
+        weights = gating_net(query_batch)
+
         batch_sim_shape = (batch_len, num_candidates)
         all_sim_v = torch.zeros(batch_sim_shape, device=DEVICE)
         all_sim_a = torch.zeros(batch_sim_shape, device=DEVICE)
         all_sim_t = torch.zeros(batch_sim_shape, device=DEVICE)
-        
+
         for v_start in range(0, num_candidates, VIDEO_BATCH_SIZE):
             v_end = min(v_start + VIDEO_BATCH_SIZE, num_candidates)
             vb_v = video_matrix[v_start:v_end].float().to(DEVICE)
             vb_a = audio_matrix[v_start:v_end].float().to(DEVICE)
             vb_t = text_matrix_full[v_start:v_end].float().to(DEVICE)
 
-            # Use angular similarity with temperature scaling
             if ANGULAR_SIMILARITY:
                 all_sim_v[:, v_start:v_end] = angular_similarity(query_batch, vb_v, temperature=TEMPERANCE_VISUAL)
                 all_sim_a[:, v_start:v_end] = angular_similarity(query_batch_clap, vb_a, temperature=TEMPERATURE_AUDIO)
@@ -236,43 +241,28 @@ for epoch in range(args.epochs):
 
             del vb_v, vb_a, vb_t
 
-        # Matrices are already pre-allocated and filled, no concatenation needed
+        # Apply modality-specific scaling
+        sim_v_scaled = all_sim_v * MODALITY_SCALE_VISUAL
+        sim_t_scaled = all_sim_t * MODALITY_SCALE_TEXT
+        sim_a_scaled = all_sim_a * MODALITY_SCALE_AUDIO
 
-        weights = gating_net(query_batch)
-
-        # Apply modality-specific normalization with scaling factors
-        all_sim_v_scaled = all_sim_v * MODALITY_SCALE_VISUAL
-        all_sim_t_scaled = all_sim_t * MODALITY_SCALE_TEXT
-        all_sim_a_scaled = all_sim_a * MODALITY_SCALE_AUDIO
-
+        # Weighted fusion: weights[:, 0:1] is (batch, 1), broadcasts to (batch, N)
         sim_gated = (
-            weights[:, 0:1] * all_sim_v_scaled.to(DEVICE) +
-            weights[:, 1:2] * all_sim_t_scaled.to(DEVICE) +
-            weights[:, 2:3] * all_sim_a_scaled.to(DEVICE)
+            weights[:, 0:1] * sim_v_scaled +
+            weights[:, 1:2] * sim_t_scaled +
+            weights[:, 2:3] * sim_a_scaled
         )
 
-        correct_indices = torch.tensor([video_id_to_idx[train_query_video_ids[batch_indices[i_idx]]] 
+        correct_indices = torch.tensor([video_id_to_idx[train_query_video_ids[batch_indices[i_idx]]]
                                    for i_idx in range(batch_len)], device=DEVICE)
-        correct_scores = sim_gated[torch.arange(batch_len), correct_indices]
-        
-        neg_scores = sim_gated.clone()
-        neg_scores[torch.arange(batch_len), correct_indices] = -float('inf')
-        
-        topk_neg_scores, _ = torch.topk(neg_scores, min(NUM_NEGATIVES, num_candidates - 1), dim=1)
-        
-        # Fix margin ranking loss - should be 1 for correct ordering, -1 for incorrect
-        target = torch.ones_like(topk_neg_scores)
-        loss = F.margin_ranking_loss(
-            correct_scores.unsqueeze(1).expand(-1, NUM_NEGATIVES),
-            topk_neg_scores,
-            target,
-            RANKING_MARGIN,
-            reduction='mean'
-        )
-        loss = loss * 3.0
-        loss.backward()
-        optimizer.step()
+
+        log_probs = F.log_softmax(sim_gated, dim=1)
+        loss = F.nll_loss(log_probs, correct_indices)
+
         optimizer.zero_grad()
+        loss.backward()
+        torch.nn.utils.clip_grad_norm_(gating_net.parameters(), GRAD_CLIP)
+        optimizer.step()
 
         total_loss += loss
         num_batches += 1
@@ -280,14 +270,13 @@ for epoch in range(args.epochs):
         del query_batch, query_batch_clap, all_sim_v, all_sim_a, all_sim_t, weights, sim_gated, loss
 
     avg_loss = (total_loss / max(num_batches, 1)).item()
-    print(f"  Epoch {epoch+1}/{args.epochs}  Loss: {avg_loss:.4f}", flush=True)
-    
-    # Debug: Print average weights every 5 epochs
+    print(f"  Epoch {epoch+1}/{args.epochs}  Loss: {avg_loss:.4f}  LR: {optimizer.param_groups[0]['lr']:.6f}", flush=True)
+
     if (epoch + 1) % 5 == 0:
         with torch.no_grad():
-            sample_weights = gating_net(train_query_clip[:100].float().to(DEVICE)).cpu()
-            print(f"    Debug weights - w_v: {sample_weights[:, 0].mean():.3f}, w_t: {sample_weights[:, 1].mean():.3f}, w_a: {sample_weights[:, 2].mean():.3f}", flush=True)
-    
+            w = gating_net(train_query_clip[:10].float().to(DEVICE)).cpu()
+            print(f"    Debug weights - w_v: {w[:, 0].mean():.3f}, w_t: {w[:, 1].mean():.3f}, w_a: {w[:, 2].mean():.3f}", flush=True)
+
     gc.collect()
     torch.cuda.empty_cache()
 
@@ -297,63 +286,41 @@ torch.save(gating_net.state_dict(), AEMS_GATING_WEIGHTS_PATH)
 print("\n[EVAL] Evaluating on test queries against test candidates...", flush=True)
 gating_net.eval()
 
-if len(test_queries) <= len(train_query_clip):
-    test_query_clip = train_query_clip[:len(test_queries)]
-    test_query_clap = train_query_clap[:len(test_queries)]
-else:
-    print("[EVAL] Re-encoding test queries (CLIP model freed)...")
-    print("  Using train prefix fallback.", flush=True)
-    test_query_clip = train_query_clip[:min(len(test_queries), len(train_query_clip))]
-    test_query_clap = train_query_clap[:min(len(test_queries), len(train_query_clap))]
-
-# Use angular similarity for evaluation
 if ANGULAR_SIMILARITY:
     sim_v = angular_similarity(test_query_clip.float(), video_matrix_test, temperature=TEMPERANCE_VISUAL).to(DEVICE)
     sim_a = angular_similarity(test_query_clap.float(), audio_matrix_test, temperature=TEMPERATURE_AUDIO).to(DEVICE)
     sim_t = angular_similarity(test_query_clip.float(), text_matrix_test, temperature=TEMPERANCE_TEXT).to(DEVICE)
 else:
-    sim_v = F.normalize(test_query_clip.float() @ video_matrix_test.T, dim=1).to(DEVICE)
-    sim_a = F.normalize(test_query_clap.float() @ audio_matrix_test.T, dim=1).to(DEVICE)
-    sim_t = F.normalize(test_query_clip.float() @ text_matrix_test.T, dim=1).to(DEVICE)
+    sim_v = (test_query_clip.float() @ video_matrix_test.T).to(DEVICE)
+    sim_a = (test_query_clap.float() @ audio_matrix_test.T).to(DEVICE)
+    sim_t = (test_query_clip.float() @ text_matrix_test.T).to(DEVICE)
 
-sim_gated_list = []
-    for i in range(0, len(test_queries), QUERY_BATCH_SIZE):
-        q = test_query_clip[i:i+QUERY_BATCH_SIZE].float().to(DEVICE)
-        with torch.no_grad():
-            w = gating_net(q)
-            sim_v_batch = sim_v[i:i+QUERY_BATCH_SIZE]
-            sim_t_batch = sim_t[i:i+QUERY_BATCH_SIZE]
-            sim_a_batch = sim_a[i:i+QUERY_BATCH_SIZE]
+# Adaptive gating: query-level weights applied to all candidates
+with torch.no_grad():
+    gate_w = gating_net(test_query_clip.float().to(DEVICE))  # (num_test, 3)
 
-            # Apply modality-specific scaling in evaluation
-            sim_v_scaled = sim_v_batch * MODALITY_SCALE_VISUAL
-            sim_t_scaled = sim_t_batch * MODALITY_SCALE_TEXT
-            sim_a_scaled = sim_a_batch * MODALITY_SCALE_AUDIO
-
-            gated = (w[:, 0:1] * sim_v_scaled +
-                     w[:, 1:2] * sim_t_scaled +
-                     w[:, 2:3] * sim_a_scaled)
-        sim_gated_list.append(gated.cpu())
-    sim_gated = torch.cat(sim_gated_list, dim=0)
+sim_gated = (
+    gate_w[:, 0:1] * sim_v * MODALITY_SCALE_VISUAL +
+    gate_w[:, 1:2] * sim_t * MODALITY_SCALE_TEXT +
+    gate_w[:, 2:3] * sim_a * MODALITY_SCALE_AUDIO
+)
 
 systems = {
     "Visual only": sim_v,
     "Text only": sim_t,
     "Audio only": sim_a,
-    "Equal fusion": (sim_v + sim_t + sim_a) / 3,
+    "Equal fusion": (sim_v * MODALITY_SCALE_VISUAL + sim_t * MODALITY_SCALE_TEXT + sim_a * MODALITY_SCALE_AUDIO) / 3,
     "Adaptive gating": sim_gated,
 }
 
 print("\n" + "=" * 70)
-print("GATING EVALUATION RESULTS")
+print("GATING EVALUATION RESULTS (v3 - Query-Level Gating)")
 print("=" * 70)
 for name, sim in systems.items():
     metrics = evaluate_retrieval(sim, test_query_video_ids, common_vids_test, ks=[1, 5, 10])
     print(f"  {name:>20}: R@1={metrics['R@1']:.4f}  R@5={metrics['R@5']:.4f}  R@10={metrics['R@10']:.4f}", flush=True)
 
-with torch.no_grad():
-    sample_weights = gating_net(test_query_clip[:min(100, len(test_queries))].float().to(DEVICE)).cpu()
-print(f"\n  Gate weights (mean over {len(sample_weights)} queries):", flush=True)
-print(f"    w_v: {sample_weights[:, 0].mean():.4f} +/- {sample_weights[:, 0].std():.4f}", flush=True)
-print(f"    w_t: {sample_weights[:, 1].mean():.4f} +/- {sample_weights[:, 1].std():.4f}", flush=True)
-print(f"    w_a: {sample_weights[:, 2].mean():.4f} +/- {sample_weights[:, 2].std():.4f}", flush=True)
+print(f"\n  Gate weights (mean over {len(gate_w)} test queries):", flush=True)
+print(f"    w_v: {gate_w[:, 0].mean():.4f} +/- {gate_w[:, 0].std():.4f}", flush=True)
+print(f"    w_t: {gate_w[:, 1].mean():.4f} +/- {gate_w[:, 1].std():.4f}", flush=True)
+print(f"    w_a: {gate_w[:, 2].mean():.4f} +/- {gate_w[:, 2].std():.4f}", flush=True)

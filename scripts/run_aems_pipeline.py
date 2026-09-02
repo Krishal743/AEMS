@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """AEMS Phase A pipeline orchestration script."""
 
-import subprocess, sys, os, time, argparse, json, glob
+import subprocess, sys, os, time, argparse
 from datetime import datetime
 
 PYTHON = sys.executable
