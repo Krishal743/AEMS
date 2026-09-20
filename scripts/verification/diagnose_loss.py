@@ -13,10 +13,10 @@ MAX_VIDEOS = 50
 
 
 class GatingNetwork(nn.Module):
-    def __init__(self, text_dim=512, hidden_dim=128):
+    def __init__(self, input_dim=512, hidden_dim=128):
         super().__init__()
         self.net = nn.Sequential(
-            nn.Linear(text_dim, hidden_dim),
+            nn.Linear(input_dim, hidden_dim),
             nn.ReLU(),
             nn.Linear(hidden_dim, 3),
             nn.Softmax(dim=-1)
@@ -81,7 +81,7 @@ def main():
     print("LOSS BEHAVIOR ANALYSIS")
     print("="*70)
     
-    gating_net = GatingNetwork(text_dim=512, hidden_dim=128).to(DEVICE)
+    gating_net = GatingNetwork(input_dim=512, hidden_dim=128).to(DEVICE)
     optimizer = torch.optim.Adam(gating_net.parameters(), lr=1e-3)
     
     sample_indices = random.sample(range(num_queries), min(5, num_queries))

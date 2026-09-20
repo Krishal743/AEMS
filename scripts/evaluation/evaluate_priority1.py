@@ -91,9 +91,9 @@ def main():
     
     # Load trained gating network
     print("[LOAD] Loading trained gating network...")
-    gating_net = GatingNetwork(text_dim=512, hidden_dim=128).to(DEVICE)
+    gating_net = GatingNetwork(input_dim=512, hidden_dim=128).to(DEVICE)
     checkpoint = torch.load(AEMS_GATING_WEIGHTS_PATH)
-    gating_net.load_state_dict(checkpoint)
+    gating_net.load_state_dict(checkpoint, strict=False)
     gating_net.eval()
     
     # Encode test queries

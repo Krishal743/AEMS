@@ -6,8 +6,6 @@ Alternative audio embedding computation - try different approaches
 import torch
 import torch.nn.functional as F
 import numpy as np
-# import librosa  # Not needed for this test
-# import torchaudio  # Not needed for this test
 from src.encoders.clap_encode import CLAPEncoder
 from src.config import AEMS_AUDIO_EMBEDDINGS_PATH, DEVICE
 

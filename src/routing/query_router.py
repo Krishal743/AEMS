@@ -5,15 +5,6 @@ import clip
 from src.encoders.clap_encode import CLAPEncoder
 
 
-def detect_query_type(query):
-    if isinstance(query, dict):
-        kinds = [k for k, v in query.items() if v is not None]
-        if len(kinds) > 1:
-            return "mixed"
-        return kinds[0] if kinds else "text"
-    return "text"
-
-
 def load_clip(device):
     model, _ = clip.load("ViT-B/32", device=device)
     model.eval()
@@ -62,8 +53,3 @@ def compute_modal_similarities(query_embed, video_matrix, audio_matrix, caption_
     sim_t = (query_embed @ caption_matrix.to(device=device, dtype=dtype).T).squeeze(0)
     sim_a = (query_embed @ audio_matrix.to(device=device, dtype=dtype).T).squeeze(0)
     return sim_v, sim_t, sim_a
-
-
-def apply_gating(weights, sim_v, sim_t, sim_a):
-    w_v, w_t, w_a = weights
-    return w_v * sim_v + w_t * sim_t + w_a * sim_a

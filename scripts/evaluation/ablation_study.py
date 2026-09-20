@@ -122,8 +122,8 @@ def main():
     results["equal_fusion"] = eval_system("Equal fusion (all 3)", sim_equal, test_vids, common)
 
     # 4. Adaptive gating
-    gate = GatingNetwork(text_dim=512, hidden_dim=128).to(DEVICE)
-    gate.load_state_dict(torch.load(args.gate_weights, map_location=DEVICE))
+    gate = GatingNetwork(input_dim=512, hidden_dim=128).to(DEVICE)
+    gate.load_state_dict(torch.load(args.gate_weights, map_location=DEVICE), strict=False)
     gate.eval()
 
     sim_gated_list = []

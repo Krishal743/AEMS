@@ -179,7 +179,7 @@ torch.cuda.empty_cache()
 
 video_id_to_idx = {vid: i for i, vid in enumerate(common_vids_all)}
 
-gating_net = GatingNetwork(text_dim=512, hidden_dim=128).to(DEVICE)
+gating_net = GatingNetwork(input_dim=512, hidden_dim=128).to(DEVICE)
 optimizer = torch.optim.Adam(gating_net.parameters(), lr=LEARNING_RATE)
 
 num_train = len(train_queries)

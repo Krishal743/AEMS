@@ -7,13 +7,6 @@ import clip
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
-# Keyword dictionaries for routing override
-VISUAL_KEYWORDS = {"car", "person", "scene", "red", "blue", "building", "sky", "dog", "cat", "water", "face", "road", "tree", "mountain", "indoor", "outdoor", "city", "street", "room", "beach", "field", "forest", "desk", "chair", "table", "window", "floor", "wall", "car", "truck", "bus", "bike", "motorcycle", "boat", "airplane", "helicopter", "plane", "bird", "horse", "cow", "sheep", "elephant", "lion", "tiger", "bear", "fish", "snake", "lizard", "frog", "butterfly", "bee", "ant", "spider", "crab", "shark", "whale", "dolphin", "child", "adult", "man", "woman", "boy", "girl", "people", "crowd", "soldier", "police", "doctor", "nurse", "chef", "driver", "pilot", "singer", "dancer", "actor", "athlete", "student", "teacher"}
-
-AUDIO_KEYWORDS = {"music", "song", "sound", "loud", "quiet", "explosion", "crash", "bang", "fire", "water", "rain", "thunder", "wind", "voice", "speech", "talking", "singing", "laughing", "crying", "scream", "shout", "whisper", "applause", "cheering", "music", "beat", "rhythm", "drum", "guitar", "piano", "violin", "trumpet", "horn", "bell", "chime", "horn", "alarm", "siren", "bell", "gun", "shot", "firework", "engine", "motor", "tire", "footstep", "running", "walking", "jumping", "climbing", "swimming", "diving", "flying", "driving", "riding", "landing", "taking off", "breaking", "crashing", "hitting", "kicking", "punching", "slapping", "clapping", "snapping", "clicking", "ticking", "clock", "timer", "bell"}
-
-TEXT_KEYWORDS = {"talk", "lecture", "explain", "describe", "tell", "show", "how to", "what is", "about", "regarding", "concerning", "tutorial", "lesson", "class", "course", "teaching", "learning", "study", "reading", "writing", "speaking", "discuss", "analysis", "review", "summary", "explanation", "demonstration", "instruction", "guide", "introduction", "conclusion", "result", "finding", "discovery", "knowledge", "information", "fact", "concept", "theory", "principle", "method", "approach", "technique", "strategy", "process", "procedure", "step", "stage", "phase", "level", "degree", "extent", "amount", "number", "point", "issue", "problem", "question", "answer", "solution"}
-
 # Test queries manually selected
 TEST_QUERIES = [
     # Visual-heavy (3)
@@ -59,10 +52,10 @@ EXPECTED_DOMINANT = [
 
 
 class GatingNetwork(nn.Module):
-    def __init__(self, text_dim=512, hidden_dim=128):
+    def __init__(self, input_dim=512, hidden_dim=128):
         super().__init__()
         self.net = nn.Sequential(
-            nn.Linear(text_dim, hidden_dim),
+            nn.Linear(input_dim, hidden_dim),
             nn.ReLU(),
             nn.Linear(hidden_dim, 3),
             nn.Softmax(dim=-1)
@@ -103,7 +96,7 @@ def main():
     caption_embeds = F.normalize(caption_embeds, p=2, dim=1)
     
     print("[GATE] Loading gating network weights...")
-    gating_net = GatingNetwork(text_dim=512, hidden_dim=128).to(DEVICE)
+    gating_net = GatingNetwork(input_dim=512, hidden_dim=128).to(DEVICE)
     gating_net.load_state_dict(torch.load("models/gating_weights.pth"))
     gating_net.eval()
     
@@ -119,16 +112,7 @@ def main():
         tokens = clip.tokenize([query]).to(DEVICE)
         query_embed = clip_model.encode_text(tokens)
         query_embed = query_embed / query_embed.norm(dim=1, keepdim=True)
-        
-        # Keyword override DISABLED - use learned gating only
-        # query_lower = query.lower()
-        # if any(word in query_lower for word in VISUAL_KEYWORDS):
-        #     weights = torch.tensor([[0.6, 0.2, 0.2]]).to(DEVICE)
-        # elif any(word in query_lower for word in AUDIO_KEYWORDS):
-        #     weights = torch.tensor([[0.2, 0.2, 0.6]]).to(DEVICE)
-        # elif any(word in query_lower for word in TEXT_KEYWORDS):
-        #     weights = torch.tensor([[0.2, 0.6, 0.2]]).to(DEVICE)
-        # else:
+
         with torch.no_grad():
             weights = gating_net(query_embed.float().to(DEVICE))
         

@@ -63,8 +63,8 @@ def main():
 
     sim_v, sim_t, sim_a = compute_modal_similarities(query_emb, vid_m, aud_m, cap_m)
 
-    gate = GatingNetwork(text_dim=512, hidden_dim=128).to(DEVICE)
-    gate.load_state_dict(torch.load(args.gate_weights, map_location=DEVICE))
+    gate = GatingNetwork(input_dim=512, hidden_dim=128).to(DEVICE)
+    gate.load_state_dict(torch.load(args.gate_weights, map_location=DEVICE), strict=False)
     gate.eval()
     with torch.no_grad():
         w = gate(query_emb.to(DEVICE)).cpu().squeeze(0)

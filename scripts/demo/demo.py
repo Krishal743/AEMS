@@ -60,8 +60,8 @@ def main():
     print("done")
 
     print("[GATE] Loading gating network...", end=" ", flush=True)
-    gate = GatingNetwork(text_dim=512, hidden_dim=128).to(DEVICE)
-    gate.load_state_dict(torch.load(args.gate_weights, map_location=DEVICE))
+    gate = GatingNetwork(input_dim=512, hidden_dim=128).to(DEVICE)
+    gate.load_state_dict(torch.load(args.gate_weights, map_location=DEVICE), strict=False)
     gate.eval()
     with torch.no_grad():
         w = gate(query_emb.to(DEVICE)).cpu().squeeze(0)

@@ -125,8 +125,8 @@ def run_evaluation_only():
         print("\n[INFO] Testing adaptive gating with trained weights...")
         from src.models.gating_network import GatingNetwork
         
-        gating_net = GatingNetwork(text_dim=512, hidden_dim=128).to(DEVICE)
-        gating_net.load_state_dict(torch.load(gating_weights_path))
+        gating_net = GatingNetwork(input_dim=512, hidden_dim=128).to(DEVICE)
+        gating_net.load_state_dict(torch.load(gating_weights_path), strict=False)
         gating_net.eval()
         
         sim_gated_list = []

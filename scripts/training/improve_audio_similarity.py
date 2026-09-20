@@ -152,8 +152,8 @@ def create_improved_gating_with_audio():
         import os
         
         if os.path.exists("models/aems_gating_weights_v1.pth"):
-            gating_net = GatingNetwork(text_dim=512, hidden_dim=128).to(DEVICE)
-            gating_net.load_state_dict(torch.load("models/aems_gating_weights_v1.pth"))
+            gating_net = GatingNetwork(input_dim=512, hidden_dim=128).to(DEVICE)
+            gating_net.load_state_dict(torch.load("models/aems_gating_weights_v1.pth"), strict=False)
             gating_net.eval()
             
             print("[INFO] Loaded existing gating network")

@@ -186,8 +186,8 @@ def main():
     print("INVESTIGATION 2: GATING WEIGHT DISTRIBUTION")
     print("=" * 70)
 
-    gate = GatingNetwork(text_dim=512, hidden_dim=128).to(DEVICE)
-    gate.load_state_dict(torch.load(args.gate_weights, map_location=DEVICE))
+    gate = GatingNetwork(input_dim=512, hidden_dim=128).to(DEVICE)
+    gate.load_state_dict(torch.load(args.gate_weights, map_location=DEVICE), strict=False)
     gate.eval()
 
     all_weights = []
