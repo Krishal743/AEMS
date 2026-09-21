@@ -15,7 +15,7 @@ Writes embeddings/aems_audio_embeddings_beats_v1.pt ({video_id: tensor}).
 
 Run:
   export PYTHONPATH="${PYTHONPATH}:$(pwd)"
-  python scripts/alignment/build_beats_features.py
+  python experiments/audio_alignment/build_beats_features.py
 """
 
 import argparse

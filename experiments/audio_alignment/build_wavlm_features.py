@@ -16,7 +16,7 @@ Existing files/DBs are not modified.
 
 Run:
   export PYTHONPATH="${PYTHONPATH}:$(pwd)"
-  python scripts/alignment/build_wavlm_features.py
+  python experiments/audio_alignment/build_wavlm_features.py
 """
 
 import argparse

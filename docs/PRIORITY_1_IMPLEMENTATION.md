@@ -5,7 +5,7 @@
 ### **1. Angular Similarity** ✅
 **Status**: Fully Implemented and Active
 
-**Location**: `scripts/training/train_aems_gating.py`
+**Location**: `bin/training/train_gating_network.py`
 
 **Implementation**:
 - Added `angular_similarity()` function (line 16)
@@ -31,7 +31,7 @@ def angular_similarity(query_emb, video_emb, temperature=1.0):
 ### **2. Temperature Scaling** ✅
 **Status**: Fully Implemented and Active
 
-**Location**: `scripts/training/train_aems_gating.py` (lines 42-44)
+**Location**: `bin/training/train_gating_network.py` (lines 42-44)
 
 **Configuration**:
 ```python
@@ -48,7 +48,7 @@ TEMPERANCE_VISUAL = 1.0  # No scaling for visual (already good)
 ### **3. Modality-Specific Normalization** ✅
 **Status**: Fully Implemented and Active
 
-**Location**: `scripts/training/train_aems_gating.py` (lines 45-47)
+**Location**: `bin/training/train_gating_network.py` (lines 45-47)
 
 **Configuration**:
 ```python
@@ -200,4 +200,4 @@ All Priority 1 optimizations are configurable for fine-tuning:
 
 **Implementation Date**: August 26, 2026
 **Status**: ✅ COMPLETE AND READY FOR TRAINING
-**Next Action**: Run training with `source venv/bin/activate && python scripts/training/train_aems_gating.py`
+**Next Action**: Run training with `source venv/bin/activate && python bin/training/train_gating_network.py`

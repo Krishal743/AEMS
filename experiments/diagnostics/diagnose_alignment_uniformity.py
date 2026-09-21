@@ -21,7 +21,7 @@ Metrics computed:
 
 Run:
   export PYTHONPATH="${PYTHONPATH}:$(pwd)"
-  python scripts/diagnostic/diagnose_alignment_uniformity.py [--text-variant fused|description|transcript]
+  python experiments/diagnostics/diagnose_alignment_uniformity.py [--text-variant fused|description|transcript]
 """
 
 import argparse

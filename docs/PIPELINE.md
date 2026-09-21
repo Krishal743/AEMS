@@ -49,19 +49,19 @@ Output: `data/processed/audio/`
 
 ### 5a. Precompute video embeddings
 ```bash
-python scripts/embeddings/precompute_video_embeddings.py
+python bin/embeddings/precompute_video_embeddings.py
 ```
 Output: `embeddings/video_embeddings.pt`
 
 ### 5b. Precompute audio embeddings
 ```bash
-python scripts/embeddings/precompute_audio_embeddings.py
+python bin/embeddings/precompute_audio_embeddings.py
 ```
 Output: `embeddings/audio_embeddings.pt`
 
 ### 5c. Precompute caption embeddings
 ```bash
-python scripts/embeddings/precompute_caption_embeddings.py
+python bin/embeddings/precompute_caption_embeddings_legacy.py
 ```
 Output: `embeddings/caption_embeddings.pt`
 
@@ -81,38 +81,38 @@ Output: `models/gating_weights.pth`
 
 ### 8. Train temporal transformer
 ```bash
-python scripts/training/train_temporal_transformer.py
+python bin/training/train_temporal_transformer.py
 ```
 Output: `embeddings/video_embeddings_transformer.pt`, `models/temporal_transformer_best.pth`
 
 ### 9. Final evaluation
 ```bash
-bash scripts/evaluation/run_final_eval.sh
+bash bin/evaluation/run_final_eval.sh
 ```
 Output: `outputs/eval/`
 
 ### 10. Multi-query retrieval (Phase 2b)
 ```bash
-python3 scripts/queries/query_text.py --query "your text"
-python3 scripts/queries/query_mixed.py --text "your text" --image /path/to/image.jpg  (--image optional)
+python3 bin/queries/query_text.py --query "your text"
+python3 bin/queries/query_mixed.py --text "your text" --image /path/to/image.jpg  (--image optional)
 ```
 
 ### 11. Explainability demo
 ```bash
-python3 scripts/demo/demo.py --query "your text" --top-k 5
+python3 bin/demo/demo.py --query "your text" --top-k 5
 ```
 
 ### 12. Behavioural verification
 ```bash
-python3 scripts/evaluation/behavioural_test.py
+python3 bin/evaluation/behavioural_test.py
 ```
 
 ### 13. Final evaluation
 ```bash
-python3 scripts/evaluation/final_eval.py --gate-weights models/gating_weights_meanpool.pth
+python3 bin/evaluation/final_eval.py --gate-weights models/gating_weights_meanpool.pth
 ```
 
 ### 14. Ablation study
 ```bash
-python3 scripts/evaluation/ablation_study.py --gate-weights models/gating_weights_meanpool.pth
+python3 bin/evaluation/ablation_study.py --gate-weights models/gating_weights_meanpool.pth
 ```

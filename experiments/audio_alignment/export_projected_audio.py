@@ -9,7 +9,7 @@ train_aems_gating.py.
 
 Run:
   export PYTHONPATH="${PYTHONPATH}:$(pwd)"
-  python scripts/alignment/export_projected_audio.py
+  python experiments/audio_alignment/export_projected_audio.py
 """
 
 import argparse

@@ -10,7 +10,7 @@ methods, using the exact M6 training recipe and a dropout-OFF gallery-based
 best-state selector. No existing models/scripts/DBs were modified.
 
 ## Protocol
-`scripts/alignment/eval_multi_seed_crop.py` (new):
+`experiments/audio_alignment/eval_multi_seed_crop.py` (new):
 - Seeds {100, 200, 300} retrain of `AudioAdapter`, targets: text (M4) vs
   video+text hybrid (M6-hybrid). Best state = dropout-OFF a2t R@1 on cached
   test features (the original training-time metric ran with dropout ON).
@@ -49,7 +49,7 @@ advantage is specific to the 3-segment-mean input the pipeline deploys;
 generalization gap if the query path ever uses one random window.
 
 ## Artifacts
-- Script: `scripts/alignment/eval_multi_seed_crop.py` (new; `--skip-train`,
+- Script: `experiments/audio_alignment/eval_multi_seed_crop.py` (new; `--skip-train`,
   `--no-crops` flags supported).
 - Results: `outputs/alignment/multi_seed_crop_eval.json` (full per-seed×variant
   tables, aggregates, decision).

@@ -15,10 +15,10 @@
 | **2a** | Text Query Retrieval | ✅ | `run_final_eval.sh` executed. Per-modality results: sim_v=0.2165, sim_t=0.1159, sim_a=0.0003. All 7 eval outputs in `outputs/eval/d1-d7`. |
 | **2b** | Multi-Query Support | ✅ | 5 query scripts created: `query_text.py`, `query_image.py`, `query_audio.py`, `query_video.py`, `query_mixed.py`. All verified working with GPU dtype handling. |
 | **3** | Explainability | ✅ | `src/explainability/explain_retrieval.py` — 3 functions: modality contributions, gating decision, ranking explanation. Integrated into all query scripts and demo. |
-| **4** | Behavioural Verification | ✅ | `scripts/evaluation/behavioural_test.py` run. Result: gating does not adapt per query semantics (1/12 correct). Documented negative result. |
-| **5** | Final Evaluation | ✅ | `scripts/evaluation/final_eval.py` run. 5-system comparison: best=adaptive no audio (R@1=0.2697). GPU memory: 0.37 GB. |
-| **6** | Ablation Study | ✅ | `scripts/evaluation/ablation_study.py` run. 11 ablations. Key finding: audio hurts, best is adaptive v+t only (R@1=0.2697). |
-| **7** | Demonstration Pipeline | ✅ | `scripts/demo/demo.py` — interactive text query with full explainability output. `run_demo.sh` wrapper. |
+| **4** | Behavioural Verification | ✅ | `bin/evaluation/behavioural_test.py` run. Result: gating does not adapt per query semantics (1/12 correct). Documented negative result. |
+| **5** | Final Evaluation | ✅ | `bin/evaluation/final_eval.py` run. 5-system comparison: best=adaptive no audio (R@1=0.2697). GPU memory: 0.37 GB. |
+| **6** | Ablation Study | ✅ | `bin/evaluation/ablation_study.py` run. 11 ablations. Key finding: audio hurts, best is adaptive v+t only (R@1=0.2697). |
+| **7** | Demonstration Pipeline | ✅ | `bin/demo/demo.py` — interactive text query with full explainability output. `run_demo.sh` wrapper. |
 | **8** | Documentation | ✅ | 8 docs files: `ARCHITECTURE.md`, `PIPELINE.md`, `EXPLAINABILITY.md`, `ABLATIONS.md`, `ARCHITECTURE_AUDIT.md`, `PROJECT_CHECKPOINT.md`, `KNOWN_BUGS.md`, `AGENTS.md`. |
 | **9** | Final Verification | ✅ | This report. All files exist, all modules compile, all outputs present. |
 

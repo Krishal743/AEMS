@@ -12,7 +12,7 @@ which directly lowers recall.
 
 Run:
   export PYTHONPATH="${PYTHONPATH}:$(pwd)"
-  python scripts/diagnostic/diagnose_hubness.py [--text-variant fused]
+  python experiments/diagnostics/diagnose_hubness.py [--text-variant fused]
 """
 
 import argparse

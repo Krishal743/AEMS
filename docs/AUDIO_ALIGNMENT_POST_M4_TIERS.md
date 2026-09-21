@@ -29,7 +29,7 @@ Random chance R@1 for the 1,022-gallery test set is ≈ 0.0010.
 
 ## 2. Tier 1 — Global hard negatives + hubness on frozen M4 features
 
-`scripts/alignment/m4_plus.py`
+`experiments/audio_alignment/m4_plus.py`
 
 **What was tried.** A momentum memory bank (momentum 0.5, warm-started from
 train features) supplies 64 *global* hard negatives per anchor during an extra
@@ -52,9 +52,9 @@ motivates Tiers 2/3 (unfreeze the encoder).
 
 ## 3. Tier 2 — LoRA inside HTSAT
 
-`scripts/alignment/lora_torch.py` (LoRA module + injection, 48 targets:
-`attn.qkv/proj`, `mlp.fc1/fc2`), `scripts/alignment/audio_ft_utils.py` (raw
-waveform pipeline), `scripts/alignment/m_lora_contrastive.py` (train).
+`experiments/audio_alignment/lora_torch.py` (LoRA module + injection, 48 targets:
+`attn.qkv/proj`, `mlp.fc1/fc2`), `experiments/audio_alignment/audio_ft_utils.py` (raw
+waveform pipeline), `experiments/audio_alignment/m_lora_contrastive.py` (train).
 
 **Setup.** 48 LoRA adapters (r=16, α=16, B zero-init, ~2.97 M trainable params)
 on the frozen HTSAT backbone + a fresh 1024→512 projection head + fresh
@@ -73,7 +73,7 @@ the accessible signal.
 
 ## 4. Tier 3 — Full audio-encoder fine-tune
 
-`scripts/alignment/m_full_finetune.py`
+`experiments/audio_alignment/m_full_finetune.py`
 
 **Setup.** Entire HTSAT audio branch (30.2 M params) unfrozen + fresh head
 (0.66 M) + fresh logit_scale, split-LR AdamW (backbone 5e-6, head 1e-3),
@@ -107,7 +107,7 @@ constrained adapter and LoRA regularise better.
 
 ## 5. Final comparison (all methods, held-out test, n=1022)
 
-`scripts/alignment/compare_methods.py` → `outputs/alignment/method_comparison.json`
+`experiments/audio_alignment/compare_methods.py` → `outputs/alignment/method_comparison.json`
 
 | Method | t2a R@1 | t2a MRR | a2t R@1 | a2t MRR | align | gap | hub | aniso |
 |--------|--------:| -------:|--------:|--------:|------:|----:|----:|------:|
@@ -160,14 +160,14 @@ R@1 0.0012→0.0078, equal-fusion 0.2411→0.2341, adaptive gating 0.3894 (held)
 
 | Component | Path |
 |---|---|
-| Tier 1 script/results | `scripts/alignment/m4_plus.py`, `outputs/alignment/m4_plus_results.json` |
+| Tier 1 script/results | `experiments/audio_alignment/m4_plus.py`, `outputs/alignment/m4_plus_results.json` |
 | Tier 1 DBs (not deployed) | `embeddings/aems_audio_aligned_m4_global_hn.pt`, `aems_audio_aligned_m4_boosted.pt` |
 | Tier 1 model | `models/audio_adapter_m4_globalhn.pt` |
-| LoRA module | `scripts/alignment/lora_torch.py` |
-| Audio pipeline utils | `scripts/alignment/audio_ft_utils.py` |
-| Tier 2 script | `scripts/alignment/m_lora_contrastive.py` |
+| LoRA module | `experiments/audio_alignment/lora_torch.py` |
+| Audio pipeline utils | `experiments/audio_alignment/audio_ft_utils.py` |
+| Tier 2 script | `experiments/audio_alignment/m_lora_contrastive.py` |
 | Tier 2 model/DB | `models/audio_lora_cliptext_rank16.pt`, `embeddings/aems_audio_aligned_m4_lora.pt`, `outputs/alignment/m2_lora_results.json` |
-| Tier 3 script | `scripts/alignment/m_full_finetune.py` |
+| Tier 3 script | `experiments/audio_alignment/m_full_finetune.py` |
 | Tier 3 model/DB | `models/audio_fullft_cliptext.pt`, `embeddings/aems_audio_aligned_m4_fullft.pt`, `outputs/alignment/tier3_fullft_results.json` |
-| Comparison table | `scripts/alignment/compare_methods.py`, `outputs/alignment/method_comparison.json` |
+| Comparison table | `experiments/audio_alignment/compare_methods.py`, `outputs/alignment/method_comparison.json` |
 | Fusion impact (M4, unchanged) | `outputs/alignment/fusion_impact_m4.json` |

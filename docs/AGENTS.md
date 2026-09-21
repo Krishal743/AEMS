@@ -5,7 +5,8 @@
 ```bash
 source venv/bin/activate
 export PYTHONPATH="${PYTHONPATH}:$(pwd)"
-python scripts/<category>/<name>.py
+python bin/<category>/<name>.py          # production scripts
+python experiments/<area>/<name>.py      # research scripts
 ```
 
 ## Project structure
@@ -29,60 +30,63 @@ team23/
 │   │   └── explain_retrieval.py
 │   └── routing/               # Query routing
 │       └── query_router.py
-├── scripts/
+├── bin/                       # Production scripts (run directly)
 │   ├── data/                  # Data preparation
 │   ├── embeddings/            # Embedding precomputation
-│   ├── baselines/             # Single-modality/fusion baselines
 │   ├── training/              # Model training (gating, transformer)
 │   ├── evaluation/            # Evaluation & orchestration
 │   ├── queries/               # Query scripts with explainability
 │   ├── demo/                  # Interactive demo
 │   └── verification/          # Diagnostics & verification
-├── configs/                   # YAML config files (future use)
+├── experiments/               # Research code (not part of the pipeline)
+│   ├── audio_alignment/       # Audio projection methods (M1-M6, LoRA, BEATs/WavLM/ImageBind)
+│   ├── audio_optimization/    # Embedding & similarity improvements
+│   ├── diagnostics/           # Anisotropy, hubness, modality-gap analysis
+│   └── ablations/             # Ablation studies & weight sweeps
+├── pipeline/                  # Pipeline orchestration (run_aems_pipeline.py)
+├── tests/                     # Pytest suite
 ├── data/                      # Raw & processed data (gitignored)
 ├── embeddings/                # Precomputed .pt files (gitignored)
 ├── checkpoints/               # Per-epoch checkpoints (gitignored)
 ├── outputs/                   # Eval results & logs (gitignored)
 ├── models/                    # Final trained weights (gitignored)
-├── notebooks/                 # Jupyter notebooks
 └── docs/                      # Documentation
 ```
 
 ## Pipeline order / Data flow
 
-download → parse_captions → extract_frames (or extract_uniform_frames) → extract_audio → precompute_video/audio/caption embeddings → baselines/training → queries/demo
+build_manifest → extract_frames → extract_audio → precompute_video/audio/text embeddings → train_temporal_transformer → export_transformer_embeddings → train_gating_network → eval_aems_retrieval → queries/demo
 
-The query scripts (`scripts/queries/`) and demo (`scripts/demo/`) sit at the end of the pipeline. They load precomputed embeddings and trained gating weights, perform retrieval with explainability, and output ranked results with per-modality contribution breakdowns.
+`pipeline/run_aems_pipeline.py` orchestrates all of the above; run it with `--stage <name>` to execute a single stage. The MSR-VTT-era data-prep and baseline scripts were removed in commit `102e67b`.
+
+The query scripts (`bin/queries/`) and demo (`bin/demo/`) sit at the end of the pipeline. They load precomputed embeddings and trained gating weights, perform retrieval with explainability, and output ranked results with per-modality contribution breakdowns.
 
 ## Key scripts
 
 | Category | Script | Purpose |
 |---|---|---|
-| **Queries** | `scripts/queries/query_text.py` | Text query with explainability |
-| | `scripts/queries/query_image.py` | Image query with explainability |
-| | `scripts/queries/query_audio.py` | Audio query with explainability |
-| | `scripts/queries/query_video.py` | Video query with explainability |
-| | `scripts/queries/query_mixed.py` | Mixed text+image query |
-| **Evaluation** | `scripts/evaluation/final_eval.py` | Unified 5-system evaluation |
-| | `scripts/evaluation/ablation_study.py` | 11-way ablation study |
-| | `scripts/evaluation/behavioural_test.py` | Gating behaviour verification |
-| **Demo** | `scripts/demo/demo.py` | Interactive text query demo with explanations |
-| **Data prep** | `scripts/data/download_msrvtt.py` | Download MSR-VTT from HuggingFace |
-| | `scripts/data/parse_msrvtt_captions.py` | Parse annotations, build metadata JSON |
-| | `scripts/data/extract_frames_msrvtt.py` | Frames via ffmpeg (fps=1, max=15) |
-| | `scripts/data/extract_uniform_frames.py` | Exactly 16 uniform frames for transformer |
-| | `scripts/data/extract_audio_msrvtt.py` | Audio via moviepy + librosa |
-| **Embeddings** | `scripts/embeddings/precompute_video_embeddings.py` | CLIP encode → `video_embeddings.pt` |
-| | `scripts/embeddings/precompute_audio_embeddings.py` | CLAP encode → `audio_embeddings.pt` |
-| | `scripts/embeddings/precompute_caption_embeddings.py` | CLIP encode → `caption_embeddings.pt` |
-| **Models** | `scripts/training/run_query_routing.py` | **Main gating network** (train + eval, ranking loss) |
-| | `scripts/training/train_temporal_transformer.py` | 2-layer transformer over 16 frames, InfoNCE loss |
-| **Baselines** | `scripts/baselines/run_clip_baseline.py` | CLIP visual-only baseline |
-| | `scripts/baselines/run_clap_baseline.py` | CLAP audio-only baseline |
-| | `scripts/baselines/run_fusion_baseline.py` | Equal-weight fusion baseline |
-| | `scripts/baselines/run_three_branch.py` | All 3 branches + equal fusion |
-| **Verification** | `scripts/verification/verify_gating.py` | Check gating weights vs keyword expectations |
-| | `scripts/verification/diagnose_loss.py` | Debug loss/weight behavior during gating training |
+| **Queries** | `bin/queries/query_text.py` | Text query with explainability |
+| | `bin/queries/query_image.py` | Image query with explainability |
+| | `bin/queries/query_audio.py` | Audio query with explainability |
+| | `bin/queries/query_video.py` | Video query with explainability |
+| | `bin/queries/query_mixed.py` | Mixed text+image query |
+| **Evaluation** | `bin/evaluation/final_eval.py` | Unified 5-system evaluation |
+| | `bin/evaluation/ablation_study.py` | 11-way ablation study |
+| | `bin/evaluation/behavioural_test.py` | Gating behaviour verification |
+| **Demo** | `bin/demo/demo.py` | Interactive text query demo with explanations |
+| **Data prep** | `bin/data/build_manifest.py` | Build AEMS manifest (`--pilot` for a 500-video subset) |
+| | `bin/data/extract_frames.py` | Exactly 16 uniform frames per video |
+| | `bin/data/extract_audio.py` | Three 10s audio segments per video |
+| **Embeddings** | `bin/embeddings/precompute_video_embeddings.py` | CLIP encode → `aems_video_embeddings_v1.pt` |
+| | `bin/embeddings/precompute_audio_embeddings.py` | CLAP encode → `aems_audio_embeddings_v1.pt` |
+| | `bin/embeddings/precompute_text_embeddings.py` | CLIP text encode; `--fusion description\|transcript\|fused` |
+| **Models** | `bin/training/train_gating_network.py` | **Main gating network** (train + eval, ranking loss) |
+| | `bin/training/train_temporal_transformer.py` | 2-layer transformer over 16 frames, InfoNCE loss |
+| | `bin/training/export_transformer_embeddings.py` | Export transformer embeddings to `.pt` |
+| | `bin/training/cleanup_checkpoints.py` | Prune per-epoch checkpoints, keep best + last |
+| **Pipeline** | `pipeline/run_aems_pipeline.py` | Orchestrates every stage above |
+| **Verification** | `bin/verification/verify_gating.py` | Check gating weights vs keyword expectations |
+| | `bin/verification/diagnose_loss.py` | Debug loss/weight behavior during gating training |
 
 ## Import conventions
 
@@ -95,9 +99,9 @@ from src.data.datasets import MSRVTTDataset
 from src.data.metadata import load_metadata, get_common_video_ids
 from src.models.gating_network import GatingNetwork
 from src.models.temporal_transformer import TemporalTransformer
-from src.config import DEVICE, set_seeds, clear_gpu
+from src.config import DEVICE, set_seeds
 from src.explainability.explain_retrieval import explain_modality_contributions, explain_gating_decision, format_explanation
-from src.routing.query_router import compute_modal_similarities
+from src.routing.query_router import load_search_index, load_gate, search
 ```
 
 ## Embedding DBs
@@ -122,10 +126,12 @@ Pattern used in gating training:
 ## Gating network
 
 - Architecture: `src/models/gating_network.py`
-- MLP: `Linear(512→128) → ReLU → Linear(128→3) → Softmax`
+- MLP: `LayerNorm(512) → Linear(512→128) → GELU → LayerNorm → Dropout → Linear(128→64) → GELU → LayerNorm → Dropout → Linear(64→3) → Softmax`
+- Optional modes: `constant_weights` (one global weight vector), `learnable_temp`, `learnable_scale`, `weight_reg`
+- `GatingNetworkPerCandidate` is a second class that also consumes per-candidate similarities; only reachable via `experiments/ablations/run_ablation.py --per-candidate`
 - Training: ranking loss with hard negatives (margin=0.2, 10 negatives/query)
 - Constants: `NUM_EPOCHS=15`, `LR=1e-3`, `NUM_TRAIN_QUERIES=300`
-- Saved to `models/gating_weights.pth`
+- Saved to `models/aems_gating_weights_v1.pth`
 
 ## Temporal transformer
 
@@ -139,17 +145,16 @@ Pattern used in gating training:
 
 ## Input data layout
 
-`scripts/data/parse_msrvtt_captions.py` expects:
+`bin/data/build_manifest.py` walks `AEMS_DATASET_ROOT` (`aems/dataset`), one directory per category:
 ```
-data/raw/msrvtt/
-├── videos/              # MSR-VTT video files
-└── annotations/
-    ├── msrvtt_annotations.json
-    ├── train_list.txt
-    └── test_list.txt
+aems/dataset/
+└── <category>/
+    ├── <video_id>.json   # metadata (description, transcript, Q&A)
+    └── <video_id>.mp4    # source video
 ```
 
-Captions are lowercased during parsing. Both frame extraction scripts require `ffmpeg`.
+It writes a stratified 85/15 per-category split to `data/processed/aems/metadata/aems_manifest_v1.json`
+(or `data/processed/aems_pilot/...` under `--pilot`). Frame extraction requires `ffmpeg`.
 
 ## Dependencies
 
@@ -160,9 +165,9 @@ See `requirements.txt`. Key non-obvious ones:
 
 ## Code conventions
 
-- No test suite, no linting, no typechecking
+- Pytest suite in `tests/`; no linting, no typechecking
 - Scripts import from `src.*` package, never from sibling scripts
-- Pipeline order scripts are in `scripts/data/`, `scripts/embeddings/`, etc.
+- Pipeline order scripts are in `bin/data/`, `bin/embeddings/`, etc.
 - All models in `src/models/`, all encoders in `src/encoders/`
 - Shared config in `src/config.py`, file-specific overrides stay in the script
 - Seeds: `set_seeds(42)` from `src.config`

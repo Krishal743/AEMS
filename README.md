@@ -39,13 +39,13 @@ bash bin/evaluation/run_final_eval.sh
 ### Querying
 ```bash
 # Text query
-python bin/queries/query_text.py "your search query"
+python bin/queries/query_text.py --query "your search query"
 
 # Audio query
-python bin/queries/query_audio.py audio.wav
+python bin/queries/query_audio.py --audio audio.wav
 
 # Multimodal
-python bin/queries/query_mixed.py --text "query" --audio audio.wav
+python bin/queries/query_mixed.py --text "query" --image image.jpg
 ```
 
 ## 📁 Directory Structure

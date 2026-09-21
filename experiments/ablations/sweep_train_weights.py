@@ -7,7 +7,7 @@ os.chdir('/home/pesu-rf/team23')
 from types import SimpleNamespace
 from src.config import (AEMS_MANIFEST_PATH, AEMS_VID_EMBEDDINGS_PATH, AEMS_AUDIO_EMBEDDINGS_PATH,
                          AEMS_TEXT_EMBEDDINGS_FUSED_PATH_TEMPLATE, DEVICE, set_seeds)
-from scripts.ablation.run_ablation import load_data, angular_similarity
+from experiments.ablations.run_ablation import load_data, angular_similarity
 from src.evaluation.evaluate_retrieval import evaluate_retrieval
 
 def main():

@@ -18,7 +18,7 @@ import torch.nn.functional as F
 import librosa
 
 from laion_clap.training.data import get_audio_features
-from scripts.alignment.compare_utils import save_db
+from experiments.audio_alignment.compare_utils import save_db
 from src.config import set_seeds
 
 AEMS_AUDIO_SR = 48000

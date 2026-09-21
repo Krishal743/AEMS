@@ -12,7 +12,7 @@ text points lie in distant, nearly-disjoint regions of the shared space.
 
 Run:
   export PYTHONPATH="${PYTHONPATH}:$(pwd)"
-  python scripts/diagnostic/diagnose_modality_gap.py [--text-variant fused]
+  python experiments/diagnostics/diagnose_modality_gap.py [--text-variant fused]
 """
 
 import argparse

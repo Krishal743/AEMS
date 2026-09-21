@@ -83,19 +83,19 @@ upgrade is a strict improvement where it matters for R@1/MRR retrieval.
   becomes available.
 
 ## Reproduce
-- `python scripts/alignment/build_wavlm_features.py` (11 min) -> `embeddings/aems_audio_embeddings_wavlm_v1.pt`
-- `python scripts/alignment/augment_text_targets.py` (5 min) -> `embeddings/aems_text_targets_augmented_train.pt`
-- `python scripts/alignment/m4_contrastive_ssl.py --variant single --seeds 42 100 200`
-- `python scripts/alignment/m4_contrastive_ssl.py --variant multi --seeds 42 100 200`
-- `python scripts/alignment/compare_all_methods.py` -> `outputs/alignment/method_comparison_v3.json`
+- `python experiments/audio_alignment/build_wavlm_features.py` (11 min) -> `embeddings/aems_audio_embeddings_wavlm_v1.pt`
+- `python experiments/audio_alignment/augment_text_targets.py` (5 min) -> `embeddings/aems_text_targets_augmented_train.pt`
+- `python experiments/audio_alignment/m4_contrastive_ssl.py --variant single --seeds 42 100 200`
+- `python experiments/audio_alignment/m4_contrastive_ssl.py --variant multi --seeds 42 100 200`
+- `python experiments/audio_alignment/compare_all_methods.py` -> `outputs/alignment/method_comparison_v3.json`
 
 Artifacts: seeded checkpoints `outputs/alignment/seeded_models/ssl_{single,multi}_seed{S}.pt`;
 combined seed stats `outputs/alignment/ssl_seed_means.json`.
 
 ## Files (all new; no existing files modified)
-- `scripts/alignment/build_wavlm_features.py`
-- `scripts/alignment/augment_text_targets.py`
-- `scripts/alignment/m4_contrastive_ssl.py`
+- `experiments/audio_alignment/build_wavlm_features.py`
+- `experiments/audio_alignment/augment_text_targets.py`
+- `experiments/audio_alignment/m4_contrastive_ssl.py`
 - `embeddings/aems_audio_embeddings_wavlm_v1.pt`
 - `embeddings/aems_text_targets_augmented_train.pt`
 - `embeddings/aems_audio_aligned_ssl_{single,multi}.pt`
@@ -154,9 +154,9 @@ Table rows (seed-42, `method_comparison_v4.json`): BEATs 0.0245/0.0647/0.0705
 - M4 CLAP DB retained as fallback; no existing files modified.
 
 ## Extra artifacts
-- `scripts/alignment/build_beats_features.py`, `scripts/alignment/build_imagebind_features.py`
-- `scripts/alignment/beats_code/` (unilm BEATs), `scripts/alignment/imagebind_code/` (repo),
-  `scripts/alignment/imagebind_deps/` (pytorchvideo stubs; do not remove)
+- `experiments/audio_alignment/build_beats_features.py`, `experiments/audio_alignment/build_imagebind_features.py`
+- `experiments/audio_alignment/beats_code/` (unilm BEATs), `experiments/audio_alignment/imagebind_code/` (repo),
+  `experiments/audio_alignment/imagebind_deps/` (pytorchvideo stubs; do not remove)
 - `embeddings/`: `aems_audio_embeddings_{beats,imagebind}_v1.pt`
 - `embeddings/aems_audio_aligned_{beats,imagebind}_{single,multi}.pt`
 - `outputs/alignment/{ssl_beats_single_results,ssl_imagebind_single_results,ssl_beats_multi_results,ssl_imagebind_multi_results,method_comparison_v4}.json`

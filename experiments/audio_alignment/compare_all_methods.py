@@ -20,7 +20,7 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
-from scripts.alignment.compare_utils import load_anchor_pairs, hubness_skew
+from experiments.audio_alignment.compare_utils import load_anchor_pairs, hubness_skew
 from src.config import set_seeds
 
 OUTPUT_DIR = "outputs/alignment"

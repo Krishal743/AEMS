@@ -12,7 +12,7 @@ full gallery for export.
 
 Run:
   export PYTHONPATH="${PYTHONPATH}:$(pwd)"
-  python scripts/alignment/m_cheap_linear.py [--which m1 m2 m5]
+  python experiments/audio_alignment/m_cheap_linear.py [--which m1 m2 m5]
 """
 
 import argparse
@@ -22,7 +22,7 @@ import os
 import torch
 import torch.nn.functional as F
 
-from scripts.alignment.compare_utils import (
+from experiments.audio_alignment.compare_utils import (
     load_anchor_pairs, ridge_fit, procrustes_map, whitening_stats, apply_whiten,
     cca_directions, local_scaling, evaluate_method,
 )

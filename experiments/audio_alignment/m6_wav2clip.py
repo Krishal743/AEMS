@@ -18,7 +18,7 @@ frozen CLIP-text description embeddings (both directions).
 
 Run:
   export PYTHONPATH="${PYTHONPATH}:$(pwd)"
-  python scripts/alignment/m6_wav2clip.py --target video --epochs 30
+  python experiments/audio_alignment/m6_wav2clip.py --target video --epochs 30
 """
 
 import argparse
@@ -31,10 +31,10 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import DataLoader, TensorDataset
 
-from scripts.alignment.m4_adapter_contrastive import (
+from experiments.audio_alignment.m4_adapter_contrastive import (
     AudioAdapter, contrastive_loss, quick_r1, quick_mrr,
 )
-from scripts.alignment.compare_utils import (
+from experiments.audio_alignment.compare_utils import (
     load_anchor_pairs, evaluate_method, save_db, collect_text_embeddings,
 )
 from src.config import (

@@ -13,7 +13,7 @@ restore spread.
 
 Run:
   export PYTHONPATH="${PYTHONPATH}:$(pwd)"
-  python scripts/diagnostic/diagnose_anisotropy.py [--text-variant fused]
+  python experiments/diagnostics/diagnose_anisotropy.py [--text-variant fused]
 """
 
 import argparse

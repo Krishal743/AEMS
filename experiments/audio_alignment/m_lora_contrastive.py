@@ -11,7 +11,7 @@ Trained strictly on the 5,748 TRAIN anchors; evaluated on held-out TEST (1022).
 
 Run:
   export PYTHONPATH="${PYTHONPATH}:$(pwd)"
-  python scripts/alignment/m_lora_contrastive.py --rank 16 --epochs 40
+  python experiments/audio_alignment/m_lora_contrastive.py --rank 16 --epochs 40
 """
 
 import argparse
@@ -27,12 +27,12 @@ from torch.utils.data import DataLoader
 
 from src.config import AEMS_MANIFEST_PATH, AEMS_AUDIO_EMBEDDINGS_PATH, set_seeds
 from src.data.metadata import load_metadata
-from scripts.alignment.compare_utils import load_anchor_pairs, save_db
-from scripts.alignment.audio_ft_utils import (
+from experiments.audio_alignment.compare_utils import load_anchor_pairs, save_db
+from experiments.audio_alignment.audio_ft_utils import (
     AudioWaveformDataset, AudioCollator, clap_audio_embedding,
     contrastive_audio_loss, find_audio_path, AEMS_AUDIO_SR,
 )
-from scripts.alignment.lora_torch import inject_lora, count_trainable
+from experiments.audio_alignment.lora_torch import inject_lora, count_trainable
 
 OUTPUT_DIR = "outputs/alignment"
 os.makedirs(OUTPUT_DIR, exist_ok=True)
@@ -207,7 +207,7 @@ def main():
 
 
 def load_waveform_cached(path):
-    from scripts.alignment.audio_ft_utils import load_waveform, AEMS_AUDIO_SR
+    from experiments.audio_alignment.audio_ft_utils import load_waveform, AEMS_AUDIO_SR
     return load_waveform(path, sr=AEMS_AUDIO_SR)
 
 

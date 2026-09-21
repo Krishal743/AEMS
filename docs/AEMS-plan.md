@@ -117,9 +117,9 @@ The flat-array shape and presence of `{video_id, split, frames_dir}` keys mean `
 
 | File | Purpose |
 |---|---|
-| `scripts/data/build_aems_manifest.py` | Walks `aems/dataset/<Cat>/<id>.{json,mp4}`, applies stratified 85/15 split via `set_seeds(42)`, writes `aems_manifest_v1.json` |
-| `scripts/data/extract_aems_frames.py` | Reads manifest, extracts 16 uniform frames/video via `ffmpeg` → `data/processed/aems/frames_uniform/<id>/frame_XXXX.jpg` |
-| `scripts/data/extract_aems_audio.py` | Reads manifest, extracts **three** 10-second segments (begin/middle/end) at 48 kHz mono via `moviepy` + `librosa` → `data/processed/aems/audio/<id>.wav` |
+| `bin/data/build_manifest.py` | Walks `aems/dataset/<Cat>/<id>.{json,mp4}`, applies stratified 85/15 split via `set_seeds(42)`, writes `aems_manifest_v1.json` |
+| `bin/data/extract_frames.py` | Reads manifest, extracts 16 uniform frames/video via `ffmpeg` → `data/processed/aems/frames_uniform/<id>/frame_XXXX.jpg` |
+| `bin/data/extract_audio.py` | Reads manifest, extracts **three** 10-second segments (begin/middle/end) at 48 kHz mono via `moviepy` + `librosa` → `data/processed/aems/audio/<id>.wav` |
 | `src/data/aems_dataset.py` | `AEMSDataset(torch.utils.data.Dataset)` — loads raw data ONLY (no CLIP/preprocessing inside) |
 
 ### 2.2 Modified files
@@ -130,7 +130,7 @@ The flat-array shape and presence of `{video_id, split, frames_dir}` keys mean `
 
 No other `src/` files touched in this section.
 
-### 2.3 Manifest builder — `scripts/data/build_aems_manifest.py`
+### 2.3 Manifest builder — `bin/data/build_manifest.py`
 
 **Algorithm:**
 ```
@@ -170,7 +170,7 @@ write all records (sorted by category, then video_id) to aems_manifest_v1.json
 - `data/processed/aems/metadata/_build_log.txt` (skips, warnings, per-category counts)
 - Expected split sizes: train ≈ 5,361, test ≈ 946
 
-### 2.4 Frame extraction — `scripts/data/extract_aems_frames.py`
+### 2.4 Frame extraction — `bin/data/extract_frames.py`
 
 **Mirrors** `extract_uniform_frames.py` line-by-line, with these changes only:
 - `METADATA_PATH = src.config.AEMS_MANIFEST_PATH`
@@ -183,7 +183,7 @@ write all records (sorted by category, then video_id) to aems_manifest_v1.json
 
 **At scale**: 6,307 videos × 16 frames × ~5s timeout = worst case ~14 hours sequential. Realistic average ~3.5 hours. Pilot (500 videos) ≈ 20 minutes. **Frame extraction may run in the background after the pilot succeeds**, per refinement 2.
 
-### 2.5 Audio extraction — `scripts/data/extract_aems_audio.py` (three-segment variant per refinement 1)
+### 2.5 Audio extraction — `bin/data/extract_audio.py` (three-segment variant per refinement 1)
 
 **Algorithm:**
 ```
@@ -344,12 +344,12 @@ This is a **mean-of-means**: description and transcript contribute equally regar
 
 ### 3.6 New file
 
-`scripts/embeddings/precompute_aems_text_embeddings.py` — reads manifest, encodes text-DB entries, writes one `.pt` per variant per split.
+`bin/embeddings/precompute_text_embeddings.py` — reads manifest, encodes text-DB entries, writes one `.pt` per variant per split.
 
 ### 3.7 Script interface
 
 ```
-python scripts/embeddings/precompute_aems_text_embeddings.py \
+python bin/embeddings/precompute_text_embeddings.py \
     --split {train,test} \
     --fusion {description,transcript,fused}
 ```
@@ -361,7 +361,7 @@ Each output is `{video_id: Tensor[512]}` keyed dict (one embedding per video, ev
 ### 3.8 Embedding-stage architecture (per refinement 4: dataset is dumb)
 
 ```python
-# scripts/embeddings/precompute_aems_text_embeddings.py — sketch
+# bin/embeddings/precompute_text_embeddings.py — sketch
 model, _ = clip.load("ViT-B/32", device=DEVICE)            # embedding script owns CLIP load
 model.eval()
 
@@ -414,8 +414,8 @@ The manifest has `text_description` and `text_transcript` as distinct fields. Th
 
 | New file | Mirrors | Architecture change |
 |---|---|---|
-| `scripts/embeddings/precompute_aems_video_embeddings.py` | `precompute_video_embeddings.py` | Identical algorithm; only paths swap |
-| `scripts/embeddings/precompute_aems_audio_embeddings.py` | `precompute_audio_embeddings.py` | Three-segment variant (per §2.5) |
+| `bin/embeddings/precompute_video_embeddings.py` | `precompute_video_embeddings.py` | Identical algorithm; only paths swap |
+| `bin/embeddings/precompute_audio_embeddings.py` | `precompute_audio_embeddings.py` | Three-segment variant (per §2.5) |
 
 ### 4.2 Visual embedding — `precompute_aems_video_embeddings.py`
 
@@ -581,11 +581,11 @@ This guarantees the gating network always trains against the same frozen embeddi
 
 | File | Mirrors | Architecture change |
 |---|---|---|
-| `scripts/training/train_aems_temporal_transformer.py` | `train_temporal_transformer.py` (418 lines) | **None** |
-| `scripts/training/export_aems_transformer_embeddings.py` | lines 391-416 of `train_temporal_transformer.py` (factored out per refinement) | **None** |
-| `scripts/training/train_aems_gating.py` | `run_query_routing.py` (445 lines) | **None** |
+| `bin/training/train_temporal_transformer.py` | `train_temporal_transformer.py` (418 lines) | **None** |
+| `bin/training/export_transformer_embeddings.py` | lines 391-416 of `train_temporal_transformer.py` (factored out per refinement) | **None** |
+| `bin/training/train_gating_network.py` | `run_query_routing.py` (445 lines) | **None** |
 
-`scripts/training/export_aems_transformer_embeddings.py` is a separate script that loads `aems_temporal_transformer_best_v1.pth` and produces `aems_video_embeddings_transformer_v1.pt`. Per refinement 4: "Export the transformer embeddings only after training has completed and the best checkpoint has been selected. The exported embeddings should then be used consistently by downstream components."
+`bin/training/export_transformer_embeddings.py` is a separate script that loads `aems_temporal_transformer_best_v1.pth` and produces `aems_video_embeddings_transformer_v1.pt`. Per refinement 4: "Export the transformer embeddings only after training has completed and the best checkpoint has been selected. The exported embeddings should then be used consistently by downstream components."
 
 ### 5.3 The temporal transformer (Step 1)
 
@@ -618,7 +618,7 @@ Rationale:
 - Using fused text at training time would inject transcript ASR noise into contrastive supervision.
 - The transformer learns *text-video alignment*; description is the cleanest possible alignable text.
 
-### 5.4 Embedding export (Step 2) — `scripts/training/export_aems_transformer_embeddings.py`
+### 5.4 Embedding export (Step 2) — `bin/training/export_transformer_embeddings.py`
 
 **Per refinement 4**: After Step 1 completes and the best checkpoint is selected, run a dedicated export script.
 
@@ -648,7 +648,7 @@ torch.save(all_video_embeds, AEMS_VIDEO_EMBEDDINGS_TRANSFORMER_PATH)
 
 This is the transformer's contribution to the eval-time embedding DB. The mean-pool CLIP embedding (`aems_video_embeddings_v1.pt` from Section 4) is the other visual embedding variant. Both stored; experiments can run on either.
 
-### 5.5 The gating network (Step 3) — `scripts/training/train_aems_gating.py`
+### 5.5 The gating network (Step 3) — `bin/training/train_gating_network.py`
 
 **Per refinement 1**: Separate AEMS training script.
 
@@ -711,7 +711,7 @@ This is the realization of the LOO regime the old system attempted but couldn't 
 
 **Per refinement 2**: Single consolidated `eval_aems_retrieval.py` script. All five systems share query encoding and embedding DBs — 1× encoding pass instead of 5×, and ensures all systems are evaluated under identical conditions.
 
-**New file**: `scripts/evaluation/eval_aems_retrieval.py`
+**New file**: `bin/evaluation/eval_aems_retrieval.py`
 
 **Algorithm:**
 ```
@@ -969,11 +969,11 @@ ci_low, ci_high = np.percentile(metric_samples, [2.5, 97.5])
 
 | File | Purpose |
 |---|---|
-| `scripts/evaluation/eval_aems_retrieval.py` | Unified five-system evaluation (new). Combines baselines + gating eval + ablation flags + summary table + bootstrap CIs + category stratification into one script. |
+| `bin/evaluation/eval_aems_retrieval.py` | Unified five-system evaluation (new). Combines baselines + gating eval + ablation flags + summary table + bootstrap CIs + category stratification into one script. |
 
 ### 6.12 What this section deliberately does NOT do
 
-- **No behavioural-verification script** (the old `scripts/evaluation/behavioural_test.py`). Per the locked project constraints, behavioural verification is reserved for Phase B if Phase A's adaptive gating fails to beat equal fusion.
+- **No behavioural-verification script** (the old `bin/evaluation/behavioural_test.py`). Per the locked project constraints, behavioural verification is reserved for Phase B if Phase A's adaptive gating fails to beat equal fusion.
 - **No ablation_study.py port** (the old script that ran 11-way ablations). The four CLI flag combinations in §6.5 cover the scientifically relevant subset without re-implementing the full 11-way matrix.
 - **No `final_eval.py` port** (the old "unified 5-system evaluation" script). `eval_aems_retrieval.py` IS the unified-5-system evaluation for AEMS — there is no need for a separate `final_eval_aems.py`.
 
@@ -1007,17 +1007,17 @@ The pilot validates the pipeline end-to-end before committing ~10 days of comput
 
 | Step | Script | Estimated wall-clock | Notes |
 |---|---|---|---|
-| P-1 | `scripts/data/build_aems_manifest.py --pilot` | ~2 min | Writes `aems_pilot/manifest_v1.json` — 500-video stratified subset |
-| P-2 | `scripts/data/extract_aems_frames.py --manifest aems_pilot/manifest_v1.json` | ~20 min | 500 × 16 frames × ffmpeg. Resume-on-rerun. |
-| P-3 | `scripts/data/extract_aems_audio.py --manifest aems_pilot/manifest_v1.json` | ~15 min | 500 × 3 segments × moviepy/librosa. |
-| P-4 | `scripts/embeddings/precompute_aems_video_embeddings.py --manifest aems_pilot/manifest_v1.json` | ~1 min | 500 × CLIP forward. |
-| P-5 | `scripts/embeddings/precompute_aems_audio_embeddings.py --manifest aems_pilot/manifest_v1.json` | ~1 min | 500 × 3 CLAP forwards. |
-| P-6 | `scripts/embeddings/precompute_aems_text_embeddings.py --split train --fusion description` (and `transcript`, `fused`) | ~3 min | 3 fusion variants × pilot train split. |
+| P-1 | `bin/data/build_manifest.py --pilot` | ~2 min | Writes `aems_pilot/manifest_v1.json` — 500-video stratified subset |
+| P-2 | `bin/data/extract_frames.py --manifest aems_pilot/manifest_v1.json` | ~20 min | 500 × 16 frames × ffmpeg. Resume-on-rerun. |
+| P-3 | `bin/data/extract_audio.py --manifest aems_pilot/manifest_v1.json` | ~15 min | 500 × 3 segments × moviepy/librosa. |
+| P-4 | `bin/embeddings/precompute_video_embeddings.py --manifest aems_pilot/manifest_v1.json` | ~1 min | 500 × CLIP forward. |
+| P-5 | `bin/embeddings/precompute_audio_embeddings.py --manifest aems_pilot/manifest_v1.json` | ~1 min | 500 × 3 CLAP forwards. |
+| P-6 | `bin/embeddings/precompute_text_embeddings.py --split train --fusion description` (and `transcript`, `fused`) | ~3 min | 3 fusion variants × pilot train split. |
 | P-7 | Repeat P-6 with `--split test` | ~2 min | 3 fusion variants × pilot test split. |
-| P-8 | `scripts/training/train_aems_temporal_transformer.py --manifest aems_pilot/manifest_v1.json --epochs 4` | ~1 h | **Per refinement 7**: Reduce to 4 transformer epochs. Pilot exists to validate correctness and convergence, not maximize performance. |
-| P-9 | `scripts/training/export_aems_transformer_embeddings.py --manifest aems_pilot/manifest_v1.json` | ~2 min | Export embeddings from best pilot checkpoint. |
-| P-10 | `scripts/training/train_aems_gating.py --manifest aems_pilot/manifest_v1.json --epochs 15` | ~30 min | Train on pilot Q&A queries; verify ranking loss decreases and weights do not collapse instantly. |
-| P-11 | `scripts/evaluation/eval_aems_retrieval.py --pilot` (canonical config: meanpool + fused) | ~5 min | Report R@1/R@5/R@10 for all five systems. Bootstrap CIs optional in pilot. |
+| P-8 | `bin/training/train_temporal_transformer.py --manifest aems_pilot/manifest_v1.json --epochs 4` | ~1 h | **Per refinement 7**: Reduce to 4 transformer epochs. Pilot exists to validate correctness and convergence, not maximize performance. |
+| P-9 | `bin/training/export_transformer_embeddings.py --manifest aems_pilot/manifest_v1.json` | ~2 min | Export embeddings from best pilot checkpoint. |
+| P-10 | `bin/training/train_gating_network.py --manifest aems_pilot/manifest_v1.json --epochs 15` | ~30 min | Train on pilot Q&A queries; verify ranking loss decreases and weights do not collapse instantly. |
+| P-11 | `bin/evaluation/eval_aems_retrieval.py --pilot` (canonical config: meanpool + fused) | ~5 min | Report R@1/R@5/R@10 for all five systems. Bootstrap CIs optional in pilot. |
 
 ### 7.3 Pilot success criteria (gate before running full corpus)
 
@@ -1043,12 +1043,12 @@ Per the refinement in Section 2 (Decision 2 from that turn): once the pilot succ
 
 | Step | Script | Wall-clock | Foreground / background |
 |---|---|---|---|
-| F-1 | `scripts/data/build_aems_manifest.py` (no `--pilot`) | ~10 min | Foreground |
-| F-2 | `scripts/data/extract_aems_frames.py` | ~3.5 h | **Background** — per refinement 2 from Section 2 |
-| F-3 | `scripts/data/extract_aems_audio.py` | ~12 h | **Background** — three-segment extraction is ~3× slower than the old center-10s |
-| F-4 | `scripts/embeddings/precompute_aems_video_embeddings.py` | ~3 min | Foreground (after F-2 completes) |
-| F-5 | `scripts/embeddings/precompute_aems_audio_embeddings.py` | ~8 min | Foreground (after F-3 completes) |
-| F-6 | `scripts/embeddings/precompute_aems_text_embeddings.py --split train --fusion description` | ~15 min | Foreground (after F-1) — text needs no preprocessed audio/video |
+| F-1 | `bin/data/build_manifest.py` (no `--pilot`) | ~10 min | Foreground |
+| F-2 | `bin/data/extract_frames.py` | ~3.5 h | **Background** — per refinement 2 from Section 2 |
+| F-3 | `bin/data/extract_audio.py` | ~12 h | **Background** — three-segment extraction is ~3× slower than the old center-10s |
+| F-4 | `bin/embeddings/precompute_video_embeddings.py` | ~3 min | Foreground (after F-2 completes) |
+| F-5 | `bin/embeddings/precompute_audio_embeddings.py` | ~8 min | Foreground (after F-3 completes) |
+| F-6 | `bin/embeddings/precompute_text_embeddings.py --split train --fusion description` | ~15 min | Foreground (after F-1) — text needs no preprocessed audio/video |
 | F-7 | Repeat F-6 for `--fusion transcript`, `--fusion fused` × both splits | ~75 min total | Foreground |
 | F-8 | (checkpoint) verify all six embedding files exist with expected key counts | <1 min | Foreground |
 
@@ -1056,15 +1056,15 @@ Per the refinement in Section 2 (Decision 2 from that turn): once the pilot succ
 
 | Step | Script | Wall-clock | Notes |
 |---|---|---|---|
-| T-1 | `scripts/training/train_aems_temporal_transformer.py --epochs 12` | ~6 days (12 × ~12h/epoch on 5,361 train videos) | **Per refinement 8**: 12 epochs initial, with validation monitoring and the flexibility to stop early if convergence occurs or extend training if the model is still improving. |
-| T-2 | `scripts/training/export_aems_transformer_embeddings.py` | ~10 min | Only after T-1 finishes and best checkpoint is selected (per refinement 4 from Section 5) |
-| T-3 | `scripts/training/train_aems_gating.py --epochs 15` | ~2 h | Uses frozen transformer-or-meanpool embeddings; per refinement 8 from Section 5, monitor for convergence |
+| T-1 | `bin/training/train_temporal_transformer.py --epochs 12` | ~6 days (12 × ~12h/epoch on 5,361 train videos) | **Per refinement 8**: 12 epochs initial, with validation monitoring and the flexibility to stop early if convergence occurs or extend training if the model is still improving. |
+| T-2 | `bin/training/export_transformer_embeddings.py` | ~10 min | Only after T-1 finishes and best checkpoint is selected (per refinement 4 from Section 5) |
+| T-3 | `bin/training/train_gating_network.py --epochs 15` | ~2 h | Uses frozen transformer-or-meanpool embeddings; per refinement 8 from Section 5, monitor for convergence |
 
 **Phase A-3: Evaluation (~1 hour)**
 
 | Step | Script | Wall-clock | Notes |
 |---|---|---|---|
-| E-1 | `scripts/evaluation/eval_aems_retrieval.py` (canonical: meanpool + fused) | ~10 min | Including bootstrap CIs |
+| E-1 | `bin/evaluation/eval_aems_retrieval.py` (canonical: meanpool + fused) | ~10 min | Including bootstrap CIs |
 | E-2 | Repeat with `--visual-variant transformer --text-variant fused` | ~10 min | Visual ablation |
 | E-3 | Repeat with `--visual-variant meanpool --text-variant description` | ~5 min | Text ablation D |
 | E-4 | Repeat with `--visual-variant meanpool --text-variant transcript` | ~5 min | Text ablation T |
@@ -1113,19 +1113,19 @@ This is the exhaustive list of files Phase A introduces. Every file in this list
 
 | # | Path | Section | Purpose |
 |---|---|---|---|
-| 1 | `scripts/data/build_aems_manifest.py` | §2 | Manifest builder with stratified split + `--pilot` flag |
-| 2 | `scripts/data/extract_aems_frames.py` | §2 | 16-frame ffmpeg extraction from AEMS MP4s |
-| 3 | `scripts/data/extract_aems_audio.py` | §2 | Three 10s segments (begin/middle/end) moviepy + librosa |
+| 1 | `bin/data/build_manifest.py` | §2 | Manifest builder with stratified split + `--pilot` flag |
+| 2 | `bin/data/extract_frames.py` | §2 | 16-frame ffmpeg extraction from AEMS MP4s |
+| 3 | `bin/data/extract_audio.py` | §2 | Three 10s segments (begin/middle/end) moviepy + librosa |
 | 4 | `src/data/aems_dataset.py` | §2 | `AEMSDataset` — dumb raw-data loader, dict returns |
-| 5 | `scripts/embeddings/precompute_aems_video_embeddings.py` | §4 | CLIP meanpool 16-frame → 512-dim per video |
-| 6 | `scripts/embeddings/precompute_aems_audio_embeddings.py` | §4 | CLAP 3-segment mean → 512-dim per video |
-| 7 | `scripts/embeddings/precompute_aems_text_embeddings.py` | §3 | Three variants: `--fusion {description,transcript,fused}` × `--split {train,test}` |
-| 8 | `scripts/training/train_aems_temporal_transformer.py` | §5 | Temporal transformer training (architecture unchanged) |
-| 9 | `scripts/training/export_aems_transformer_embeddings.py` | §5 | Export embeddings from frozen best checkpoint |
-| 10 | `scripts/training/train_aems_gating.py` | §5 | Gating network training (architecture unchanged) |
-| 11 | `scripts/evaluation/eval_aems_retrieval.py` | §6 | Unified five-system eval + ablations + bootstrap CIs + summary table |
+| 5 | `bin/embeddings/precompute_video_embeddings.py` | §4 | CLIP meanpool 16-frame → 512-dim per video |
+| 6 | `bin/embeddings/precompute_audio_embeddings.py` | §4 | CLAP 3-segment mean → 512-dim per video |
+| 7 | `bin/embeddings/precompute_text_embeddings.py` | §3 | Three variants: `--fusion {description,transcript,fused}` × `--split {train,test}` |
+| 8 | `bin/training/train_temporal_transformer.py` | §5 | Temporal transformer training (architecture unchanged) |
+| 9 | `bin/training/export_transformer_embeddings.py` | §5 | Export embeddings from frozen best checkpoint |
+| 10 | `bin/training/train_gating_network.py` | §5 | Gating network training (architecture unchanged) |
+| 11 | `bin/evaluation/eval_aems_retrieval.py` | §6 | Unified five-system eval + ablations + bootstrap CIs + summary table |
 | 12 | `scripts/run_aems_pipeline.py` | §7.6 | **Orchestration script** (new per §7.6 refinement) |
-| 13 | `scripts/training/cleanup_aems_checkpoints.py` | §7.10 | **Manual cleanup script** (new per refinement 6 — deletes intermediate per-epoch checkpoints, keeps only best + final) |
+| 13 | `bin/training/cleanup_checkpoints.py` | §7.10 | **Manual cleanup script** (new per refinement 6 — deletes intermediate per-epoch checkpoints, keeps only best + final) |
 
 #### 7.7.2 Source code (modified)
 
@@ -1210,19 +1210,19 @@ Trivial addition relative to the existing ~18 GB MSR-VTT project.
 | `src/data/aems_dataset.py` | ~80 lines |
 | `src/config.py` additions | ~30 lines |
 | Orchestration (`scripts/run_aems_pipeline.py`) | ~150 lines |
-| Cleanup (`scripts/training/cleanup_aems_checkpoints.py`) | ~50 lines |
+| Cleanup (`bin/training/cleanup_checkpoints.py`) | ~50 lines |
 | **Total new code** | **~1,800 lines** (mirrors/mostly copies existing MSR-VTT scripts) |
 
 ### 7.10 Checkpoint cleanup script (per refinement 6)
 
 **Per refinement 6**: Keep checkpoint cleanup as a standalone script rather than performing automatic deletion inside the training process. This is safer and allows manual verification before removing intermediate checkpoints.
 
-**New file**: `scripts/training/cleanup_aems_checkpoints.py`
+**New file**: `bin/training/cleanup_checkpoints.py`
 
 **Algorithm:**
 ```python
 # Manual invocation, post-training, post-successful-eval:
-# python scripts/training/cleanup_aems_checkpoints.py --keep-best --keep-last
+# python bin/training/cleanup_checkpoints.py --keep-best --keep-last
 #   (default: keep best + last epoch)
 
 best_path = "models/aems_temporal_transformer_best_v1.pth"

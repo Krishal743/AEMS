@@ -42,5 +42,5 @@ Top-5 results:
 ```
 
 ## Integration
-- Used by: `scripts/queries/query_text.py`, `scripts/demo/demo.py`, `scripts/queries/query_mixed.py`
+- Used by: `bin/queries/query_text.py`, `bin/demo/demo.py`, `bin/queries/query_mixed.py`
 - Output format: plain text with visual/caption/audio breakdown per video

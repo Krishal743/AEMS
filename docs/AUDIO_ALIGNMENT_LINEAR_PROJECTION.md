@@ -83,9 +83,9 @@ the case here (see prior anisotropy/hubness diagnostics).
 
 | Artifact | Path |
 |----------|------|
-| Fit script | `scripts/alignment/fit_projection.py` |
-| Export script | `scripts/alignment/export_projected_audio.py` |
-| Validation script | `scripts/alignment/validate_projection.py` |
+| Fit script | `experiments/audio_alignment/fit_projection.py` |
+| Export script | `experiments/audio_alignment/export_projected_audio.py` |
+| Validation script | `experiments/audio_alignment/validate_projection.py` |
 | Learned projection | `models/audio_to_cliptext_projection.pt` |
 | Projected audio DB (6770 videos) | `embeddings/aems_audio_projected_cliptext.pt` |
 | Fit report | `outputs/alignment/projection_fit.json` |
@@ -95,9 +95,9 @@ the case here (see prior anisotropy/hubness diagnostics).
 **Reproduce:**
 ```bash
 export PYTHONPATH="${PYTHONPATH}:$(pwd)"
-python scripts/alignment/fit_projection.py
-python scripts/alignment/export_projected_audio.py
-python scripts/alignment/validate_projection.py
+python experiments/audio_alignment/fit_projection.py
+python experiments/audio_alignment/export_projected_audio.py
+python experiments/audio_alignment/validate_projection.py
 ```
 
 ---

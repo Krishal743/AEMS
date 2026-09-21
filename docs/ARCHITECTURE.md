@@ -82,5 +82,5 @@ The system uses three precomputed embedding modalities — CLIP visual, CLAP aud
 3. Extract audio (.wav, 48kHz)
 4. Precompute embeddings (CLIP for video/text, CLAP for audio)
 5. Run baselines → train gating → train transformer → final eval
-6. Query scripts (`scripts/queries/`) for text/image/audio/video/mixed retrieval with explainability
-7. Demo script (`scripts/demo/demo.py`) for interactive demonstration
+6. Query scripts (`bin/queries/`) for text/image/audio/video/mixed retrieval with explainability
+7. Demo script (`bin/demo/demo.py`) for interactive demonstration

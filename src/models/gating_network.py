@@ -9,7 +9,7 @@ class GatingNetwork(nn.Module):
     Takes CLIP query embedding (512-d) as input and outputs 3 modality weights
     per query. The same weights are applied to all candidates.
 
-    Architecture: 3-layer MLP with residual connection, LayerNorm, Dropout.
+    Architecture: 3-layer MLP with LayerNorm, GELU and Dropout.
     Optional: learnable temperature and modality scaling parameters.
     """
 
@@ -115,7 +115,6 @@ class GatingNetwork(nn.Module):
         x = query_emb.float() if query_emb.dtype == torch.float16 else query_emb
         x = self.layer_norm_in(x)
 
-        residual = x
         h = F.gelu(self.fc1(x))
         h = self.ln1(h)
         h = self.drop1(h)
@@ -125,9 +124,6 @@ class GatingNetwork(nn.Module):
         h2 = self.drop2(h2)
 
         out = self.fc3(h2)
-
-        # Add residual (project from input_dim to num_modalities via mean)
-        out = out + residual.mean(dim=-1, keepdim=True).expand_as(out)
 
         weights = F.softmax(out, dim=-1)
         return weights  # (batch, 3)
@@ -245,8 +241,6 @@ class GatingNetworkPerCandidate(nn.Module):
         fused = torch.cat([q_feat_expanded, h2], dim=-1)  # (batch, n, hidden + hidden//2)
 
         out = self.fusion_fc(fused)  # (batch, n, 3)
-        residual = x_sim.mean(dim=-1, keepdim=True)
-        out = out + residual
 
         weights = F.softmax(out, dim=-1)
         if self.min_weight > 0:

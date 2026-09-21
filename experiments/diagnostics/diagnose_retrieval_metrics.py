@@ -14,7 +14,7 @@ quality (which R@K alone can under-report at tiny candidate sets).
 
 Run:
   export PYTHONPATH="${PYTHONPATH}:$(pwd)"
-  python scripts/diagnostic/diagnose_retrieval_metrics.py [--text-variant fused]
+  python experiments/diagnostics/diagnose_retrieval_metrics.py [--text-variant fused]
 """
 
 import argparse

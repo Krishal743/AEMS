@@ -9,7 +9,7 @@ TEST set against the RAW CLAP-audio reference, and writes one JSON.
 
 Run:
   export PYTHONPATH="${PYTHONPATH}:$(pwd)"
-  python scripts/alignment/fusion_impact_aligned_db.py \
+  python experiments/audio_alignment/fusion_impact_aligned_db.py \
       --audio-dbs aems_audio_aligned_m4_adapter_ct.pt,aems_audio_aligned_m6_hybrid.pt \
       --labels m4,m6_hybrid
 """

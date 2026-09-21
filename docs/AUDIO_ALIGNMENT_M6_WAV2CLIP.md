@@ -28,9 +28,9 @@ Training uses the exact M4 recipe (same `AudioAdapter` MLP, hard-negative
 InfoNCE, batch 256, lr 1e-3, 30 epochs, cosine) — only the target(s) change
 (AudioCLIP frozen-backbone principle; ImageBind single-anchor idea).
 
-Scripts: `scripts/alignment/m6_wav2clip.py` (new),
-`scripts/alignment/compare_all_methods.py` (new comparison table),
-`scripts/alignment/fusion_impact_aligned_db.py` (new, parameterized end-to-end).
+Scripts: `experiments/audio_alignment/m6_wav2clip.py` (new),
+`experiments/audio_alignment/compare_all_methods.py` (new comparison table),
+`experiments/audio_alignment/fusion_impact_aligned_db.py` (new, parameterized end-to-end).
 
 ## 2. Results — held-out test (n=1022), vs the frozen-CLIP-text harness
 
@@ -87,10 +87,10 @@ branch change is masked there. The M6-hybrid edge over M4 is small
 
 | Component | Path |
 |---|---|
-| Training script (new) | `scripts/alignment/m6_wav2clip.py` |
-| Comparison v2 (new) | `scripts/alignment/compare_all_methods.py` → `outputs/alignment/method_comparison_v2.json` |
-| Parameterized fusion (new) | `scripts/alignment/fusion_impact_aligned_db.py` → `outputs/alignment/fusion_impact_m4_vs_m6hybrid.json` |
+| Training script (new) | `experiments/audio_alignment/m6_wav2clip.py` |
+| Comparison v2 (new) | `experiments/audio_alignment/compare_all_methods.py` → `outputs/alignment/method_comparison_v2.json` |
+| Parameterized fusion (new) | `experiments/audio_alignment/fusion_impact_aligned_db.py` → `outputs/alignment/fusion_impact_m4_vs_m6hybrid.json` |
 | M6 video-target model/DB | `models/audio_adapter_clipvid_m6.pt`, `embeddings/aems_audio_aligned_m6_w2c.pt` |
 | M6 hybrid model/DB | `models/audio_adapter_clipvid_text_hybrid_m6.pt`, `embeddings/aems_audio_aligned_m6_hybrid.pt` |
-| Reused (untouched) | `scripts/alignment/m4_adapter_contrastive.py`, `compare_methods.py`, `fusion_impact_m4.py` |
+| Reused (untouched) | `experiments/audio_alignment/m4_adapter_contrastive.py`, `compare_methods.py`, `fusion_impact_m4.py` |
 | Literature | Wav2CLIP (Wu 2022); AudioCLIP (Guzhov 2022); ImageBind (Girdhar 2023); CLIP (Radford 2021) |

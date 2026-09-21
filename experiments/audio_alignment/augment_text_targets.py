@@ -20,7 +20,7 @@ Writes embeddings/aems_text_targets_augmented_train.pt ({video_id: [M,512]}).
 
 Run:
   export PYTHONPATH="${PYTHONPATH}:$(pwd)"
-  python scripts/alignment/augment_text_targets.py
+  python experiments/audio_alignment/augment_text_targets.py
 """
 
 import argparse

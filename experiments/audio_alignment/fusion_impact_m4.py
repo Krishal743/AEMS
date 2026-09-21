@@ -12,7 +12,7 @@ fusion systems under both audio variants on the held-out TEST set.
 
 Run:
   export PYTHONPATH="${PYTHONPATH}:$(pwd)"
-  python scripts/alignment/fusion_impact_m4.py
+  python experiments/audio_alignment/fusion_impact_m4.py
 """
 
 import json, os, argparse

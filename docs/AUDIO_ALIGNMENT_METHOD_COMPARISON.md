@@ -105,14 +105,14 @@ Wiring the M4-aligned audio DB into the existing AEMS multi-modal evaluation
 - Model: `models/audio_adapter_cliptext_m4.pt`
 - Aligned audio DB (6,770 videos, video-id keys): `embeddings/aems_audio_aligned_m4_adapter_ct.pt`
 - Usage: identical interface to `aems_audio_embeddings_v1.pt`; drop-in for the
-  audio branch in `scripts/evaluation/eval_aems_retrieval.py`.
+  audio branch in `bin/evaluation/eval_aems_retrieval.py`.
 
 Reproduce:
 ```bash
 export PYTHONPATH="${PYTHONPATH}:$(pwd)"
-python scripts/alignment/m4_adapter_contrastive.py        # train + export DB
-python scripts/alignment/compare_methods.py               # full comparison table
-python scripts/alignment/fusion_impact_m4.py              # end-to-end fusion impact
+python experiments/audio_alignment/m4_adapter_contrastive.py        # train + export DB
+python experiments/audio_alignment/compare_methods.py               # full comparison table
+python experiments/audio_alignment/fusion_impact_m4.py              # end-to-end fusion impact
 ```
 
 ---

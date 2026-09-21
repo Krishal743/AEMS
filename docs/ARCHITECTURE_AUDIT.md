@@ -16,22 +16,22 @@
 | Retrieval evaluation | `src/evaluation/evaluate_retrieval.py` | ✅ | R@1/R@5/R@10, dimension validation added |
 | Config | `src/config.py` | ✅ | Shared constants, seeds, GPU utils |
 | Embedding extraction | `scripts/embeddings/` | ✅ | Video, audio, caption embedding scripts |
-| Transformer training | `scripts/training/train_temporal_transformer.py` | ✅ | InfoNCE loss, 12 epochs |
+| Transformer training | `bin/training/train_temporal_transformer.py` | ✅ | InfoNCE loss, 12 epochs |
 | Gating retraining | `scripts/training/retrain_gating.py` | ✅ | Ranking loss, loads train+test caption splits |
-| Eval orchestration | `scripts/evaluation/run_final_eval.sh` | ✅ | 7-step eval suite with PYTHONPATH |
+| Eval orchestration | `bin/evaluation/run_final_eval.sh` | ✅ | 7-step eval suite with PYTHONPATH |
 | Eval multimodal | `scripts/evaluation/eval_multimodal.py` | ✅ | Per-modality + gated fusion eval |
 | CLIP baseline | `scripts/baselines/run_clip_baseline.py` | ✅ | Visual-only baseline |
 | Query router | `src/routing/query_router.py` | ✅ | Multi-query encoding (text/image/audio/video) |
 | Explainability | `src/explainability/explain_retrieval.py` | ✅ | Modality contributions, gating decision, ranking explanation |
-| Text query | `scripts/queries/query_text.py` | ✅ | Text-to-video with explanation |
-| Image query | `scripts/queries/query_image.py` | ✅ | Image-to-video with explanation |
-| Audio query | `scripts/queries/query_audio.py` | ✅ | Audio-to-video with explanation |
-| Video query | `scripts/queries/query_video.py` | ✅ | Video-to-video with explanation |
-| Mixed query | `scripts/queries/query_mixed.py` | ✅ | Mixed text+image query with explanation |
-| Behavioural test | `scripts/evaluation/behavioural_test.py` | ✅ | 12 queries across 4 sets, routing table output |
-| Final eval | `scripts/evaluation/final_eval.py` | ✅ | Unified 5-system comparison |
-| Ablation study | `scripts/evaluation/ablation_study.py` | ✅ | 11 ablations |
-| Demo pipeline | `scripts/demo/demo.py` | ✅ | Interactive text query demo with explanations |
+| Text query | `bin/queries/query_text.py` | ✅ | Text-to-video with explanation |
+| Image query | `bin/queries/query_image.py` | ✅ | Image-to-video with explanation |
+| Audio query | `bin/queries/query_audio.py` | ✅ | Audio-to-video with explanation |
+| Video query | `bin/queries/query_video.py` | ✅ | Video-to-video with explanation |
+| Mixed query | `bin/queries/query_mixed.py` | ✅ | Mixed text+image query with explanation |
+| Behavioural test | `bin/evaluation/behavioural_test.py` | ✅ | 12 queries across 4 sets, routing table output |
+| Final eval | `bin/evaluation/final_eval.py` | ✅ | Unified 5-system comparison |
+| Ablation study | `bin/evaluation/ablation_study.py` | ✅ | 11 ablations |
+| Demo pipeline | `bin/demo/demo.py` | ✅ | Interactive text query demo with explanations |
 | Architecture audit | `docs/ARCHITECTURE_AUDIT.md` | ✅ | This document |
 
 ## Partially Completed / Negative Results
@@ -61,7 +61,7 @@ Phase 0 re-trained both gating variants with the corrected caption split. Result
 |-----|--------|------|-----|
 | Bug 1: zip-truncation | ✅ Fixed | `src/evaluation/evaluate_retrieval.py` | Added dimension validation |
 | Bug 2: train caption split | ✅ Fixed (not root cause) | `scripts/training/retrain_gating.py` | Now loads both splits; re-training confirmed no change |
-| Bug 3: gate weight paths | ✅ Fixed | `scripts/evaluation/run_final_eval.sh` | Paths now correct |
+| Bug 3: gate weight paths | ✅ Fixed | `bin/evaluation/run_final_eval.sh` | Paths now correct |
 
 ## Embedding Inventory
 

@@ -1,9 +1,13 @@
 """Behavioural verification: demonstrate gating adapts per query type."""
 
-import sys, json, torch, argparse, csv, os
-import clip
-from src.models.gating_network import GatingNetwork
+import argparse, csv, os
+import torch
+from src.encoders.clap_encode import CLAPEncoder
 from src.explainability.explain_retrieval import explain_gating_decision
+from src.routing.query_router import (
+    add_index_args, load_search_index, load_gate, load_clip,
+    encode_text_query, encode_clap_text_query, search,
+)
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 OUTPUT_DIR = "outputs/behavioural"
@@ -34,45 +38,24 @@ QUERY_SETS = {
 
 def main():
     parser = argparse.ArgumentParser(description="Behavioural verification of gating network")
-    parser.add_argument("--video-embeds", default="embeddings/video_embeddings.pt")
-    parser.add_argument("--audio-embeds", default="embeddings/audio_embeddings.pt")
-    parser.add_argument("--caption-embeds", default="embeddings/caption_embeddings_test.pt")
-    parser.add_argument("--gate-weights", default="models/gating_weights_meanpool.pth")
-    parser.add_argument("--metadata", default="data/processed/metadata/msrvtt_metadata.json")
+    add_index_args(parser)
     args = parser.parse_args()
 
     os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-    video_db = torch.load(args.video_embeds, weights_only=False)
-    audio_db = torch.load(args.audio_embeds, weights_only=False)
-    caption_db = torch.load(args.caption_embeds, weights_only=False)
-    common = sorted([v for v in video_db if v in audio_db and v in caption_db])
-
-    vid_m = torch.stack([torch.as_tensor(video_db[v]).float() for v in common])
-    aud_m = torch.stack([torch.as_tensor(audio_db[v]).float() for v in common])
-    cap_m = torch.stack([torch.as_tensor(caption_db[v]).float().max(dim=0)[0] for v in common])
-    vid_m = torch.nn.functional.normalize(vid_m, p=2, dim=1)
-    aud_m = torch.nn.functional.normalize(aud_m, p=2, dim=1)
-    cap_m = torch.nn.functional.normalize(cap_m, p=2, dim=1)
-
-    clip_model, _ = clip.load("ViT-B/32", device=DEVICE)
-    clip_model.eval()
-
-    gate = GatingNetwork(input_dim=512, hidden_dim=128).to(DEVICE)
-    gate.load_state_dict(torch.load(args.gate_weights, map_location=DEVICE), strict=False)
-    gate.eval()
+    index = load_search_index(args.video_embeds, args.audio_embeds, args.caption_embeds)
+    gate = load_gate(args.gate_weights, DEVICE)
+    clip_model = load_clip(DEVICE)
+    clap_encoder = CLAPEncoder(device=DEVICE)
 
     rows = []
     for set_name, queries in QUERY_SETS.items():
         for query in queries:
-            tokens = clip.tokenize([query]).to(DEVICE)
-            with torch.no_grad():
-                q_emb = clip_model.encode_text(tokens).float()
-                q_emb = q_emb / q_emb.norm(dim=1, keepdim=True)
-                sim_v = (q_emb @ vid_m.to(DEVICE).T).squeeze(0)
-                sim_t = (q_emb @ cap_m.to(DEVICE).T).squeeze(0)
-                sim_a = (q_emb @ aud_m.to(DEVICE).T).squeeze(0)
-                w = gate(q_emb).cpu().squeeze(0)
+            w, sim_v, sim_t, sim_a = search(
+                index, gate,
+                clip_query=encode_text_query(clip_model, query, DEVICE),
+                clap_query=encode_clap_text_query(clap_encoder, query, DEVICE),
+            )
 
             g = explain_gating_decision(w)
             rows.append({

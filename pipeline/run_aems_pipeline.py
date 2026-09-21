@@ -9,52 +9,60 @@ BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PIPELINE_LOG = os.path.join(BASE_DIR, "outputs", "aems", "_pipeline_log.txt")
 os.makedirs(os.path.dirname(PIPELINE_LOG), exist_ok=True)
 
+DEFAULT_MANIFEST = "data/processed/aems/metadata/aems_manifest_v1.json"
+PILOT_MANIFEST = "data/processed/aems_pilot/metadata/aems_manifest_v1.json"
+
+# Only build_manifest accepts --pilot; it writes the subset to PILOT_MANIFEST.
+# Every downstream stage follows the subset by being pointed at that manifest
+# instead, so passing --pilot to them would just be an unrecognized argument.
+PILOT_STAGE = "build_manifest"
+
 STAGES = {
     "preprocess": [
-        ("build_manifest", f"scripts/data/build_aems_manifest.py", []),
+        ("build_manifest", "bin/data/build_manifest.py", []),
     ],
     "extract_frames": [
-        ("extract_frames", f"scripts/data/extract_aems_frames.py", ["--resume"]),
+        ("extract_frames", "bin/data/extract_frames.py", ["--resume"]),
     ],
     "extract_audio": [
-        ("extract_audio", f"scripts/data/extract_aems_audio.py", ["--resume"]),
+        ("extract_audio", "bin/data/extract_audio.py", ["--resume"]),
     ],
     "embed": [
-        ("video_embeddings", f"scripts/embeddings/precompute_aems_video_embeddings.py", []),
-        ("audio_embeddings", f"scripts/embeddings/precompute_aems_audio_embeddings.py", []),
-        ("text_embeddings_desc_train", f"scripts/embeddings/precompute_aems_text_embeddings.py",
+        ("video_embeddings", "bin/embeddings/precompute_video_embeddings.py", []),
+        ("audio_embeddings", "bin/embeddings/precompute_audio_embeddings.py", []),
+        ("text_embeddings_desc_train", "bin/embeddings/precompute_text_embeddings.py",
          ["--split", "train", "--fusion", "description"]),
-        ("text_embeddings_desc_test", f"scripts/embeddings/precompute_aems_text_embeddings.py",
+        ("text_embeddings_desc_test", "bin/embeddings/precompute_text_embeddings.py",
          ["--split", "test", "--fusion", "description"]),
-        ("text_embeddings_trans_train", f"scripts/embeddings/precompute_aems_text_embeddings.py",
+        ("text_embeddings_trans_train", "bin/embeddings/precompute_text_embeddings.py",
          ["--split", "train", "--fusion", "transcript"]),
-        ("text_embeddings_trans_test", f"scripts/embeddings/precompute_aems_text_embeddings.py",
+        ("text_embeddings_trans_test", "bin/embeddings/precompute_text_embeddings.py",
          ["--split", "test", "--fusion", "transcript"]),
-        ("text_embeddings_fused_train", f"scripts/embeddings/precompute_aems_text_embeddings.py",
+        ("text_embeddings_fused_train", "bin/embeddings/precompute_text_embeddings.py",
          ["--split", "train", "--fusion", "fused"]),
-        ("text_embeddings_fused_test", f"scripts/embeddings/precompute_aems_text_embeddings.py",
+        ("text_embeddings_fused_test", "bin/embeddings/precompute_text_embeddings.py",
          ["--split", "test", "--fusion", "fused"]),
     ],
     "train_transformer": [
-        ("train_transformer", f"scripts/training/train_aems_temporal_transformer.py",
+        ("train_transformer", "bin/training/train_temporal_transformer.py",
          ["--epochs", "12"]),
     ],
     "export_transformer": [
-        ("export_transformer", f"scripts/training/export_aems_transformer_embeddings.py", []),
+        ("export_transformer", "bin/training/export_transformer_embeddings.py", []),
     ],
     "train_gating": [
-        ("train_gating", f"scripts/training/train_aems_gating.py", ["--epochs", "15"]),
+        ("train_gating", "bin/training/train_gating_network.py", ["--epochs", "15"]),
     ],
     "eval": [
-        ("eval_canonical", f"scripts/evaluation/eval_aems_retrieval.py",
+        ("eval_canonical", "bin/evaluation/eval_aems_retrieval.py",
          ["--visual-variant", "meanpool", "--text-variant", "fused", "--bootstrap"]),
     ],
 }
 
 REQUIRED_INPUTS = {
-    "extract_frames": ["data/processed/aems/metadata/aems_manifest_v1.json"],
-    "extract_audio": ["data/processed/aems/metadata/aems_manifest_v1.json"],
-    "embed": ["data/processed/aems/metadata/aems_manifest_v1.json"],
+    "extract_frames": ["{manifest}"],
+    "extract_audio": ["{manifest}"],
+    "embed": ["{manifest}"],
     "train_transformer": ["embeddings/aems_video_embeddings_v1.pt"],
     "export_transformer": ["models/aems_temporal_transformer_best_v1.pth"],
     "train_gating": ["embeddings/aems_video_embeddings_v1.pt",
@@ -78,9 +86,11 @@ def log_message(msg):
         f.write(line + "\n")
 
 
-def check_inputs(stage):
+def check_inputs(stage, pilot=False):
+    manifest = PILOT_MANIFEST if pilot else DEFAULT_MANIFEST
     missing = []
     for path in REQUIRED_INPUTS.get(stage, []):
+        path = path.format(manifest=manifest)
         if not os.path.exists(os.path.join(BASE_DIR, path)):
             missing.append(path)
     return missing
@@ -91,7 +101,7 @@ def run_stage(stage, pilot=False):
         log_message(f"[ERROR] Unknown stage: {stage}")
         return False
 
-    missing = check_inputs(stage)
+    missing = check_inputs(stage, pilot=pilot)
     if missing:
         log_message(f"[ERROR] Stage '{stage}' missing required inputs:")
         for m in missing:
@@ -102,7 +112,7 @@ def run_stage(stage, pilot=False):
     for name, script, extra_args in STAGES[stage]:
         cmd = [PYTHON, script] + extra_args
         if pilot:
-            cmd.append("--pilot")
+            cmd += ["--pilot"] if name == PILOT_STAGE else ["--manifest", PILOT_MANIFEST]
         log_message(f"[START] {name}: {' '.join(cmd)}")
         start = time.time()
         try:

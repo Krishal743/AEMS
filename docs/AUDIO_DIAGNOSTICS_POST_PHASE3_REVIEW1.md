@@ -56,7 +56,7 @@ between how CLAP represents audio and how the AEMS text packagers
 ## 3. Individual Framework Findings
 
 ### 3.1 Alignment & Uniformity — Wang & Isola (2020) + SigLIP (2023)
-Script: `scripts/diagnostic/diagnose_alignment_uniformity.py`
+Script: `experiments/diagnostics/diagnose_alignment_uniformity.py`
 
 | Metric | Value | Interpretation |
 |--------|-------|----------------|
@@ -73,7 +73,7 @@ Script: `scripts/diagnostic/diagnose_alignment_uniformity.py`
 **Conclusion:** The positive pairs are not aligned. This dominates everything.
 
 ### 3.2 Modality Gap — Liang et al. (2022)
-Script: `scripts/diagnostic/diagnose_modality_gap.py`
+Script: `experiments/diagnostics/diagnose_modality_gap.py`
 
 | Modality pair | Centroid euclid | Centroid cos | cos_dist |
 |---------------|:---------------:|:------------:|:--------:|
@@ -90,7 +90,7 @@ Cross-modal cosine distributions:
 gap ~1.0 cosine). Audio is not near text in the shared space.
 
 ### 3.3 Anisotropy — Ethayarajh (2019)
-Script: `scripts/diagnostic/diagnose_anisotropy.py`
+Script: `experiments/diagnostics/diagnose_anisotropy.py`
 
 | Modality | Mean pairwise cos | Eff. dim (of 512) | Top-1 PCA var |
 |----------|:-----------------:|:-----------------:|:-------------:|
@@ -107,7 +107,7 @@ severe** (mean-cos 0.83 ≈ collapse into a narrow cone). Whitening restores
 spread dramatically, confirming the anisotropy is correctable in principle.
 
 ### 3.4 Hubness — Radovanović et al. (2010)
-Script: `scripts/diagnostic/diagnose_hubness.py`
+Script: `experiments/diagnostics/diagnose_hubness.py`
 
 | Metric | Value |
 |--------|-------|
@@ -125,7 +125,7 @@ space turns into ~0 recall — every query collapses onto the same generic
 alignment is the problem, not the neighborhood structure.
 
 ### 3.5 Data Quality & Failure Categorization — BLIP (2022), VSE++ (2018), Hoiem (2012)
-Script: `scripts/diagnostic/diagnose_data_quality.py`
+Script: `experiments/diagnostics/diagnose_data_quality.py`
 
 Failure categories (text→audio self retrieval):
 
@@ -147,7 +147,7 @@ query's semantics at all (a coordinate-space problem, not a data-noise
 problem). Only ~10% of failures are attributable to data noise.
 
 ### 3.6 Comprehensive Retrieval Metrics — Chen (2021), Wu/CLAP (2023)
-Script: `scripts/diagnostic/diagnose_retrieval_metrics.py`
+Script: `experiments/diagnostics/diagnose_retrieval_metrics.py`
 
 | Metric | text→audio | audio→text |
 |--------|:----------:|:----------:|
@@ -265,12 +265,12 @@ is required at runtime, so they are fast and deterministic.
 
 ```bash
 export PYTHONPATH="${PYTHONPATH}:$(pwd)"
-python scripts/diagnostic/diagnose_alignment_uniformity.py   # Wang & Isola; SigLIP
-python scripts/diagnostic/diagnose_modality_gap.py           # Liang et al.
-python scripts/diagnostic/diagnose_anisotropy.py             # Ethayarajh
-python scripts/diagnostic/diagnose_hubness.py                # Radovanović
-python scripts/diagnostic/diagnose_data_quality.py           # BLIP; VSE++; Hoiem
-python scripts/diagnostic/diagnose_retrieval_metrics.py      # Chen; CLAP
+python experiments/diagnostics/diagnose_alignment_uniformity.py   # Wang & Isola; SigLIP
+python experiments/diagnostics/diagnose_modality_gap.py           # Liang et al.
+python experiments/diagnostics/diagnose_anisotropy.py             # Ethayarajh
+python experiments/diagnostics/diagnose_hubness.py                # Radovanović
+python experiments/diagnostics/diagnose_data_quality.py           # BLIP; VSE++; Hoiem
+python experiments/diagnostics/diagnose_retrieval_metrics.py      # Chen; CLAP
 ```
 
 Outputs (all in `outputs/diagnostics/`):

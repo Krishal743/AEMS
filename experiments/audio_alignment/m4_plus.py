@@ -28,8 +28,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import DataLoader, TensorDataset
 
-from scripts.alignment.compare_utils import load_anchor_pairs, save_db
-from scripts.alignment.m4_adapter_contrastive import AudioAdapter, quick_r1, quick_mrr
+from experiments.audio_alignment.compare_utils import load_anchor_pairs, save_db
+from experiments.audio_alignment.m4_adapter_contrastive import AudioAdapter, quick_r1, quick_mrr
 from src.config import AEMS_MANIFEST_PATH, AEMS_AUDIO_EMBEDDINGS_PATH, set_seeds
 from src.data.metadata import load_metadata, filter_by_split
 

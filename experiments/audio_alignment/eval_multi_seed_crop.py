@@ -27,7 +27,7 @@ Decision rule (user-specified):
 
 Run:
   export PYTHONPATH="${PYTHONPATH}:$(pwd)"
-  python scripts/alignment/eval_multi_seed_crop.py
+  python experiments/audio_alignment/eval_multi_seed_crop.py
 """
 
 import argparse
@@ -41,9 +41,9 @@ import torch
 import torch.nn.functional as F
 from torch.utils.data import DataLoader, TensorDataset
 
-from scripts.alignment.m4_adapter_contrastive import AudioAdapter, contrastive_loss
-from scripts.alignment.compare_utils import load_anchor_pairs, eval_direction
-from scripts.alignment.audio_ft_utils import (
+from experiments.audio_alignment.m4_adapter_contrastive import AudioAdapter, contrastive_loss
+from experiments.audio_alignment.compare_utils import load_anchor_pairs, eval_direction
+from experiments.audio_alignment.audio_ft_utils import (
     AudioCollator, clap_audio_embedding, find_audio_path, load_waveform,
 )
 from src.config import AEMS_VID_EMBEDDINGS_PATH, set_seeds

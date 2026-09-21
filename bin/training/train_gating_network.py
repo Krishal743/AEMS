@@ -173,6 +173,11 @@ print("[CLAP] Encoding train queries...", flush=True)
 train_query_clap = encode_clap_queries(train_queries)
 print(f"  Train CLAP queries: {train_query_clap.shape}", flush=True)
 
+print("[CLIP/CLAP] Encoding test queries...", flush=True)
+test_query_clip = encode_clip_queries(test_queries)
+test_query_clap = encode_clap_queries(test_queries)
+print(f"  Test queries: {test_query_clip.shape}", flush=True)
+
 del clip_model, clap_encoder
 gc.collect()
 torch.cuda.empty_cache()
@@ -297,15 +302,6 @@ torch.save(gating_net.state_dict(), AEMS_GATING_WEIGHTS_PATH)
 print("\n[EVAL] Evaluating on test queries against test candidates...", flush=True)
 gating_net.eval()
 
-if len(test_queries) <= len(train_query_clip):
-    test_query_clip = train_query_clip[:len(test_queries)]
-    test_query_clap = train_query_clap[:len(test_queries)]
-else:
-    print("[EVAL] Re-encoding test queries (CLIP model freed)...")
-    print("  Using train prefix fallback.", flush=True)
-    test_query_clip = train_query_clip[:min(len(test_queries), len(train_query_clip))]
-    test_query_clap = train_query_clap[:min(len(test_queries), len(train_query_clap))]
-
 # Use angular similarity for evaluation
 if ANGULAR_SIMILARITY:
     sim_v = angular_similarity(test_query_clip.float(), video_matrix_test, temperature=TEMPERANCE_VISUAL).to(DEVICE)
@@ -317,24 +313,24 @@ else:
     sim_t = F.normalize(test_query_clip.float() @ text_matrix_test.T, dim=1).to(DEVICE)
 
 sim_gated_list = []
-    for i in range(0, len(test_queries), QUERY_BATCH_SIZE):
-        q = test_query_clip[i:i+QUERY_BATCH_SIZE].float().to(DEVICE)
-        with torch.no_grad():
-            w = gating_net(q)
-            sim_v_batch = sim_v[i:i+QUERY_BATCH_SIZE]
-            sim_t_batch = sim_t[i:i+QUERY_BATCH_SIZE]
-            sim_a_batch = sim_a[i:i+QUERY_BATCH_SIZE]
+for i in range(0, len(test_queries), QUERY_BATCH_SIZE):
+    q = test_query_clip[i:i+QUERY_BATCH_SIZE].float().to(DEVICE)
+    with torch.no_grad():
+        w = gating_net(q)
+        sim_v_batch = sim_v[i:i+QUERY_BATCH_SIZE]
+        sim_t_batch = sim_t[i:i+QUERY_BATCH_SIZE]
+        sim_a_batch = sim_a[i:i+QUERY_BATCH_SIZE]
 
-            # Apply modality-specific scaling in evaluation
-            sim_v_scaled = sim_v_batch * MODALITY_SCALE_VISUAL
-            sim_t_scaled = sim_t_batch * MODALITY_SCALE_TEXT
-            sim_a_scaled = sim_a_batch * MODALITY_SCALE_AUDIO
+        # Apply modality-specific scaling in evaluation
+        sim_v_scaled = sim_v_batch * MODALITY_SCALE_VISUAL
+        sim_t_scaled = sim_t_batch * MODALITY_SCALE_TEXT
+        sim_a_scaled = sim_a_batch * MODALITY_SCALE_AUDIO
 
-            gated = (w[:, 0:1] * sim_v_scaled +
-                     w[:, 1:2] * sim_t_scaled +
-                     w[:, 2:3] * sim_a_scaled)
-        sim_gated_list.append(gated.cpu())
-    sim_gated = torch.cat(sim_gated_list, dim=0)
+        gated = (w[:, 0:1] * sim_v_scaled +
+                 w[:, 1:2] * sim_t_scaled +
+                 w[:, 2:3] * sim_a_scaled)
+    sim_gated_list.append(gated.cpu())
+sim_gated = torch.cat(sim_gated_list, dim=0)
 
 systems = {
     "Visual only": sim_v,

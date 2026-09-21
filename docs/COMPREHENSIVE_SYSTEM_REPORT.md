@@ -934,7 +934,7 @@ team23/
    - 48kHz sampling rate
    - Monochannel audio
 
-6. **`scripts/data/extract_aems_frames.py`**
+6. **`bin/data/extract_frames.py`**
    - Extended data extraction for AEMS variant
    - More comprehensive frame extraction
 
@@ -1141,7 +1141,7 @@ TEMPERATURE = 0.07
 
 #### Training Scripts
 
-**Main Training Script:** `scripts/training/train_temporal_transformer.py`
+**Main Training Script:** `bin/training/train_temporal_transformer.py`
 
 **Features:**
 - Mixed precision training (torch.amp)
@@ -1159,7 +1159,7 @@ The system supports five different query types:
 
 #### 1. Text Queries
 
-**Implementation:** `scripts/queries/query_text.py`
+**Implementation:** `bin/queries/query_text.py`
 
 **Process:**
 1. Input: Text description (string)
@@ -1174,7 +1174,7 @@ The system supports five different query types:
 
 **Example:**
 ```bash
-python scripts/queries/query_text.py \
+python bin/queries/query_text.py \
   --query "A dog running in the park" \
   --video-embeds embeddings/video_embeddings.pt \
   --audio-embeds embeddings/audio_embeddings.pt \
@@ -1200,7 +1200,7 @@ Top-5 results:
 
 #### 2. Image Queries
 
-**Implementation:** `scripts/queries/query_image.py`
+**Implementation:** `bin/queries/query_image.py`
 
 **Process:**
 1. Input: Image tensor (PIL Image or numpy array)
@@ -1218,7 +1218,7 @@ Top-5 results:
 
 #### 3. Audio Queries
 
-**Implementation:** `scripts/queries/query_audio.py`
+**Implementation:** `bin/queries/query_audio.py`
 
 **Process:**
 1. Input: Audio file path (.wav)
@@ -1238,7 +1238,7 @@ Top-5 results:
 
 #### 4. Video Queries
 
-**Implementation:** `scripts/queries/query_video.py`
+**Implementation:** `bin/queries/query_video.py`
 
 **Process:**
 1. Input: Video file path or frame sequence
@@ -1258,7 +1258,7 @@ Top-5 results:
 
 #### 5. Mixed Queries
 
-**Implementation:** `scripts/queries/query_mixed.py`
+**Implementation:** `bin/queries/query_mixed.py`
 
 **Process:**
 1. Input: Combination of multiple modalities

@@ -224,31 +224,31 @@ Evaluated whether the gating network adapts per-query semantics:
 
 | Category | Script | Purpose |
 |---|---|---|
-| **Queries** | `scripts/queries/query_text.py` | Text query with explainability |
-| | `scripts/queries/query_image.py` | Image query with explainability |
-| | `scripts/queries/query_audio.py` | Audio query with explainability |
-| | `scripts/queries/query_video.py` | Video query with explainability |
-| | `scripts/queries/query_mixed.py` | Mixed text+image query |
-| **Evaluation** | `scripts/evaluation/final_eval.py` | Unified 5-system evaluation |
-| | `scripts/evaluation/ablation_study.py` | 11-way ablation study |
-| | `scripts/evaluation/behavioural_test.py` | Gating behaviour verification |
-| **Demo** | `scripts/demo/demo.py` | Interactive text query demo with explanations |
+| **Queries** | `bin/queries/query_text.py` | Text query with explainability |
+| | `bin/queries/query_image.py` | Image query with explainability |
+| | `bin/queries/query_audio.py` | Audio query with explainability |
+| | `bin/queries/query_video.py` | Video query with explainability |
+| | `bin/queries/query_mixed.py` | Mixed text+image query |
+| **Evaluation** | `bin/evaluation/final_eval.py` | Unified 5-system evaluation |
+| | `bin/evaluation/ablation_study.py` | 11-way ablation study |
+| | `bin/evaluation/behavioural_test.py` | Gating behaviour verification |
+| **Demo** | `bin/demo/demo.py` | Interactive text query demo with explanations |
 | **Data prep** | `scripts/data/download_msrvtt.py` | Download MSR-VTT from HuggingFace |
 | | `scripts/data/parse_msrvtt_captions.py` | Parse annotations, build metadata JSON |
 | | `scripts/data/extract_frames_msrvtt.py` | Frames via ffmpeg (fps=1, max=15) |
 | | `scripts/data/extract_uniform_frames.py` | Exactly 16 uniform frames for transformer |
 | | `scripts/data/extract_audio_msrvtt.py` | Audio via moviepy + librosa |
-| **Embeddings** | `scripts/embeddings/precompute_video_embeddings.py` | CLIP encode → `video_embeddings.pt` |
-| | `scripts/embeddings/precompute_audio_embeddings.py` | CLAP encode → `audio_embeddings.pt` |
-| | `scripts/embeddings/precompute_caption_embeddings.py` | CLIP encode → `caption_embeddings.pt` |
+| **Embeddings** | `bin/embeddings/precompute_video_embeddings.py` | CLIP encode → `video_embeddings.pt` |
+| | `bin/embeddings/precompute_audio_embeddings.py` | CLAP encode → `audio_embeddings.pt` |
+| | `bin/embeddings/precompute_caption_embeddings_legacy.py` | CLIP encode → `caption_embeddings.pt` |
 | **Models** | `scripts/training/run_query_routing.py` | **Main gating network** (train + eval, ranking loss) |
-| | `scripts/training/train_temporal_transformer.py` | 2-layer transformer over 16 frames, InfoNCE loss |
+| | `bin/training/train_temporal_transformer.py` | 2-layer transformer over 16 frames, InfoNCE loss |
 | **Baselines** | `scripts/baselines/run_clip_baseline.py` | CLIP visual-only baseline |
 | | `scripts/baselines/run_clap_baseline.py` | CLAP audio-only baseline |
 | | `scripts/baselines/run_fusion_baseline.py` | Equal-weight fusion baseline |
 | | `scripts/baselines/run_three_branch.py` | All 3 branches + equal fusion |
-| **Verification** | `scripts/verification/verify_gating.py` | Check gating weights vs keyword expectations |
-| | `scripts/verification/diagnose_loss.py` | Debug loss/weight behavior during gating training |
+| **Verification** | `bin/verification/verify_gating.py` | Check gating weights vs keyword expectations |
+| | `bin/verification/diagnose_loss.py` | Debug loss/weight behavior during gating training |
 
 ---
 
@@ -311,7 +311,7 @@ A variable `LEXICON_LOGGING` was used in the curriculum phase check but never de
 
 ## Gating Verification
 
-`scripts/verification/verify_gating.py` validates the gating network with 9 keyword-based queries (3 visual, 3 audio, 3 text-heavy). Three conditions must pass:
+`bin/verification/verify_gating.py` validates the gating network with 9 keyword-based queries (3 visual, 3 audio, 3 text-heavy). Three conditions must pass:
 - **A**: At least one query shows clear dominant modality (weight spread ≥ 0.15)
 - **B**: Different queries produce different dominant modalities
 - **C**: Dominant modality aligns with query semantics (≥ 50% correct)

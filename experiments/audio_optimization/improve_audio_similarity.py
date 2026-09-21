@@ -4,6 +4,7 @@ Improved similarity computation for audio embeddings
 """
 
 import torch
+import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
 from src.encoders.clap_encode import CLAPEncoder

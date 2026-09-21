@@ -10,7 +10,7 @@ Trained strictly on the 5,748 TRAIN anchors; evaluated on held-out TEST (1022).
 
 Run:
   export PYTHONPATH="${PYTHONPATH}:$(pwd)"
-  python scripts/alignment/m_full_finetune.py --epochs 12 --micro-batch 2 --accum 4 --lr 5e-6
+  python experiments/audio_alignment/m_full_finetune.py --epochs 12 --micro-batch 2 --accum 4 --lr 5e-6
 """
 
 import argparse
@@ -25,8 +25,8 @@ import torch.nn.functional as F
 
 from src.config import AEMS_MANIFEST_PATH, AEMS_AUDIO_EMBEDDINGS_PATH, set_seeds
 from src.data.metadata import load_metadata
-from scripts.alignment.compare_utils import load_anchor_pairs, save_db
-from scripts.alignment.audio_ft_utils import (
+from experiments.audio_alignment.compare_utils import load_anchor_pairs, save_db
+from experiments.audio_alignment.audio_ft_utils import (
     AudioWaveformDataset, AudioCollator, clap_audio_embedding,
     contrastive_audio_loss, find_audio_path, load_waveform, AEMS_AUDIO_SR,
 )

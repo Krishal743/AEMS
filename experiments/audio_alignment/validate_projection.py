@@ -12,7 +12,7 @@ CLAP-audio into CLIP-text space actually:
 
 Run:
   export PYTHONPATH="${PYTHONPATH}:$(pwd)"
-  python scripts/alignment/validate_projection.py
+  python experiments/audio_alignment/validate_projection.py
 """
 
 import argparse

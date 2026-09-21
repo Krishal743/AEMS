@@ -1,6 +1,6 @@
 # Ablation Study Results
 
-Run by: `scripts/evaluation/ablation_study.py`
+Run by: `bin/evaluation/ablation_study.py`
 Date: July 2026
 Gate weights: `models/gating_weights_meanpool.pth` (w_v=0.40, w_t=0.21, w_a=0.40)
 

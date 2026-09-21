@@ -16,8 +16,8 @@ comparison vs the CLAP M4 baseline (loaded from multi_seed_crop_eval.json).
 
 Run:
   export PYTHONPATH="${PYTHONPATH}:$(pwd)"
-  python scripts/alignment/m4_contrastive_ssl.py --variant single --seeds 42 100 200
-  python scripts/alignment/m4_contrastive_ssl.py --variant multi  --seeds 42 100 200
+  python experiments/audio_alignment/m4_contrastive_ssl.py --variant single --seeds 42 100 200
+  python experiments/audio_alignment/m4_contrastive_ssl.py --variant multi  --seeds 42 100 200
 
 No existing files are modified; exports:
   models/audio_adapter_ssl_{single,multi}_seed{S}.pt
@@ -35,8 +35,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from scripts.alignment.m4_adapter_contrastive import contrastive_loss
-from scripts.alignment.compare_utils import eval_direction, save_db
+from experiments.audio_alignment.m4_adapter_contrastive import contrastive_loss
+from experiments.audio_alignment.compare_utils import eval_direction, save_db
 from src.config import (AEMS_MANIFEST_PATH,
                         AEMS_TEXT_EMBEDDINGS_DESC_PATH_TEMPLATE,
                         set_seeds)

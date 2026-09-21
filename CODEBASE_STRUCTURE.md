@@ -235,13 +235,13 @@ bash bin/evaluation/run_final_eval.sh
 ### Querying
 ```bash
 # Text query
-python bin/queries/query_text.py "your query"
+python bin/queries/query_text.py --query "your query"
 
 # Audio query
-python bin/queries/query_audio.py audio.wav
+python bin/queries/query_audio.py --audio audio.wav
 
 # Multimodal query
-python bin/queries/query_mixed.py --text "query" --audio audio.wav
+python bin/queries/query_mixed.py --text "query" --image image.jpg
 ```
 
 ### Research/Experiments
@@ -264,12 +264,12 @@ python experiments/ablations/run_ablation.py
 | Old Path | New Path | Type |
 |----------|----------|------|
 | `scripts/run_aems_pipeline.py` | `pipeline/run_aems_pipeline.py` | Core |
-| `scripts/data/extract_aems_frames.py` | `bin/data/extract_frames.py` | Core |
-| `scripts/training/train_aems_gating.py` | `bin/training/train_gating_network.py` | Core |
-| `scripts/evaluation/eval_aems_retrieval.py` | `bin/evaluation/eval_aems_retrieval.py` | Core |
-| `scripts/alignment/*` | `experiments/audio_alignment/` | Research |
-| `scripts/diagnostic/*` | `experiments/diagnostics/` | Research |
-| `scripts/ablation/*` | `experiments/ablations/` | Research |
+| `bin/data/extract_frames.py` | `bin/data/extract_frames.py` | Core |
+| `bin/training/train_gating_network.py` | `bin/training/train_gating_network.py` | Core |
+| `bin/evaluation/eval_aems_retrieval.py` | `bin/evaluation/eval_aems_retrieval.py` | Core |
+| `experiments/audio_alignment/*` | `experiments/audio_alignment/` | Research |
+| `experiments/diagnostics/*` | `experiments/diagnostics/` | Research |
+| `experiments/ablations/*` | `experiments/ablations/` | Research |
 | `scripts/training/improve_audio_*.py` | `experiments/audio_optimization/` | Research |
 
 ## Naming Conventions

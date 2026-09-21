@@ -15,7 +15,7 @@ pairs, using TRAIN videos only. Test videos are held out for validation.
 
 Run:
   export PYTHONPATH="${PYTHONPATH}:$(pwd)"
-  python scripts/alignment/fit_projection.py
+  python experiments/audio_alignment/fit_projection.py
 """
 
 import argparse

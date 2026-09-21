@@ -1,14 +1,5 @@
-import pytest
-import os
+import sys
+from pathlib import Path
 
-@pytest.fixture
-def metadata_path():
-    return "data/processed/metadata/msrvtt_metadata.json"
-
-@pytest.fixture
-def video_embeds_path():
-    return "embeddings/video_embeddings.pt"
-
-@pytest.fixture
-def audio_embeds_path():
-    return "embeddings/audio_embeddings.pt"
+# Make `src` importable when pytest is run from any directory.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))

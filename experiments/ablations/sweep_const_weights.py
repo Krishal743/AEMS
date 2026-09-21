@@ -7,7 +7,7 @@ import torch.nn.functional as F
 from types import SimpleNamespace
 from src.config import (AEMS_MANIFEST_PATH, AEMS_VID_EMBEDDINGS_PATH, AEMS_AUDIO_EMBEDDINGS_PATH,
                          AEMS_TEXT_EMBEDDINGS_FUSED_PATH_TEMPLATE, DEVICE)
-from scripts.ablation.run_ablation import load_data, angular_similarity, train_and_eval
+from experiments.ablations.run_ablation import load_data, angular_similarity, train_and_eval
 from src.evaluation.evaluate_retrieval import evaluate_retrieval
 
 def sweep_weights(data, w_list, tau_audio=0.5, tau_text=1.0, tau_visual=1.0, scale_a=0.8):

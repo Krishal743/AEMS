@@ -6,7 +6,7 @@ os.chdir('/home/pesu-rf/team23')
 from src.config import DEVICE, set_seeds
 from src.models.gating_network import GatingNetwork
 from src.evaluation.evaluate_retrieval import evaluate_retrieval
-from scripts.ablation.run_ablation import angular_similarity, load_data
+from experiments.ablations.run_ablation import angular_similarity, load_data
 
 def train_and_eval_deep(data, config, epochs=30):
     set_seeds(42)
@@ -60,7 +60,7 @@ def train_and_eval_deep(data, config, epochs=30):
                         weights[:, 1:2] * all_sim_t +
                         weights[:, 2:3] * all_sim_a * 0.8)
             batch_gt = gt_indices[batch_idx]
-            from scripts.ablation.run_ablation import LOSS_FUNCTIONS
+            from experiments.ablations.run_ablation import LOSS_FUNCTIONS
             loss = LOSS_FUNCTIONS[loss_name](sim_gated, batch_gt,
                 margin=margin, n_neg=n_neg, hard=hard_neg, temperature=temperature)
             optimizer.zero_grad()

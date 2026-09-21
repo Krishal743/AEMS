@@ -16,7 +16,7 @@ This script answers:
 
 Run:
   export PYTHONPATH="${PYTHONPATH}:$(pwd)"
-  python scripts/diagnostic/diagnose_data_quality.py [--text-variant fused]
+  python experiments/diagnostics/diagnose_data_quality.py [--text-variant fused]
 """
 
 import argparse

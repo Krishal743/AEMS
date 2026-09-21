@@ -1,7 +1,7 @@
 import sys, json, torch, argparse, os, gc, time, random
 import clip
 import numpy as np
-from src.models.gating_network import GatingNetwork
+from src.routing.query_router import load_gate
 from src.encoders.clap_encode import CLAPEncoder
 from src.evaluation.evaluate_retrieval import evaluate_retrieval
 from src.config import (AEMS_MANIFEST_PATH, AEMS_VID_EMBEDDINGS_PATH, AEMS_AUDIO_EMBEDDINGS_PATH,
@@ -168,10 +168,7 @@ print("[GATE] Loading gating network...")
 gate = None
 gate_available = os.path.exists(args.gate_weights)
 if gate_available:
-    gate = GatingNetwork(input_dim=512, hidden_dim=128).to(DEVICE)
-    gate.load_state_dict(torch.load(args.gate_weights, map_location=DEVICE, weights_only=False),
-                         strict=False)
-    gate.eval()
+    gate = load_gate(args.gate_weights, DEVICE)
     print("  Gating weights loaded.")
 else:
     print("  No gating weights found — adaptive gating will report zeros.")
