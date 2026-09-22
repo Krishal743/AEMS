@@ -120,11 +120,25 @@ Edit `src/config.py` for:
 
 ## 📈 Results
 
-- **Main Evaluation**: `bin/evaluation/eval_aems_retrieval.py`
-- **Priority 1 Eval**: `bin/evaluation/evaluate_priority1.py`
-- **Full Suite**: `bash bin/evaluation/run_final_eval.sh`
+AEMS test split — 5,097 QA queries over 1,022 videos, `bin/evaluation/eval_aems_retrieval.py`:
 
-Results saved to `outputs/aems/` with detailed metrics.
+| System | R@1 | R@5 | R@10 |
+|---|---|---|---|
+| Visual only | 0.194 | 0.342 | 0.408 |
+| Text only | 0.389 | 0.509 | 0.554 |
+| Audio only (WavLM + adapter) | 0.053 | 0.152 | 0.211 |
+| Equal fusion | 0.317 | 0.491 | 0.569 |
+| Fixed-weight fusion | 0.411 | 0.558 | 0.608 |
+| **Adaptive gating** | **0.415** | **0.571** | **0.623** |
+
+The gate's weights vary per query (visual 0.235 ± 0.104, text 0.625 ± 0.137,
+audio 0.140 ± 0.056), so all three branches contribute rather than the gate
+collapsing onto text as the previous version did.
+
+Reference points: audio-only was 0.004 R@1 with CLAP; the earlier gate scored
+0.389, i.e. identical to text-only search.
+
+Results are saved to `outputs/aems/`.
 
 ## 🔬 Research & Experimentation
 

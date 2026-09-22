@@ -12,6 +12,8 @@ branches are on a common scale, then takes a weighted sum. Weights are fixed
 (AEMS_FUSION_WEIGHTS) by default, or predicted per query by the gating network.
 """
 
+import os
+
 import torch
 import torch.nn.functional as F
 import clip
@@ -35,15 +37,24 @@ def add_index_args(parser):
     parser.add_argument("--audio-embeds", default=AEMS_AUDIO_EMBEDDINGS_PATH)
     parser.add_argument("--caption-embeds",
                         default=AEMS_TEXT_EMBEDDINGS_FUSED_PATH_TEMPLATE.format(split="test"))
-    parser.add_argument("--fusion", choices=["fixed", "gate"], default="fixed",
-                        help="fixed: AEMS_FUSION_WEIGHTS; gate: per-query gating network")
+    parser.add_argument("--fusion", choices=["gate", "fixed"], default="gate",
+                        help="gate: per-query gating network (default); fixed: AEMS_FUSION_WEIGHTS")
     parser.add_argument("--gate-weights", default=AEMS_GATING_WEIGHTS_PATH)
     parser.add_argument("--top-k", type=int, default=5)
 
 
 def load_fusion_gate(args, device):
-    """The gating network when --fusion gate, else None (fixed weights)."""
-    return load_gate(args.gate_weights, device) if args.fusion == "gate" else None
+    """The gating network when --fusion gate, else None (fixed weights).
+
+    Falls back to fixed weights, with a warning, when the checkpoint is missing
+    so a fresh checkout can still search before the gate has been trained.
+    """
+    if args.fusion != "gate":
+        return None
+    if not os.path.exists(args.gate_weights):
+        print(f"[WARN] {args.gate_weights} not found; falling back to fixed fusion weights")
+        return None
+    return load_gate(args.gate_weights, device)
 
 
 def load_clip(device):

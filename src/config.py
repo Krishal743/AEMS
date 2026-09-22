@@ -64,9 +64,10 @@ AEMS_AUDIO_ADAPTER_PATH = "models/aems_audio_adapter_wavlm_v1.pth"
 
 # ===== Fusion =====
 # Each branch's similarities are z-scored per query over the gallery, then
-# combined with these weights. Starting values come from a validation-split
-# search with a WavLM adapter; re-tune after training the adapter.
-AEMS_FUSION_WEIGHTS = {"visual": 0.25, "text": 1.0, "audio": 0.15}
+# combined with these weights when --fusion fixed is used. Tuned by grid search
+# on the validation split carved from train (never on test); re-tune whenever a
+# branch changes.
+AEMS_FUSION_WEIGHTS = {"visual": 0.3, "text": 1.0, "audio": 0.2}
 AEMS_VIDEO_EMBEDDINGS_TRANSFORMER_PATH = "embeddings/aems_video_embeddings_transformer_v1.pt"
 
 
