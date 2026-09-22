@@ -26,7 +26,7 @@ import torch.nn.functional as F
 
 from src.config import (
     AEMS_MANIFEST_PATH,
-    AEMS_AUDIO_EMBEDDINGS_PATH,
+    AEMS_CLAP_AUDIO_EMBEDDINGS_PATH,
     AEMS_VID_EMBEDDINGS_PATH,
     AEMS_TEXT_EMBEDDINGS_DESC_PATH_TEMPLATE,
     AEMS_TEXT_EMBEDDINGS_TRANS_PATH_TEMPLATE,
@@ -78,7 +78,7 @@ def main():
 
     # Load all four modality DBs
     print("[LOAD] Loading embedding DBs...")
-    audio_db = torch.load(AEMS_AUDIO_EMBEDDINGS_PATH, weights_only=False)
+    audio_db = torch.load(AEMS_CLAP_AUDIO_EMBEDDINGS_PATH, weights_only=False)
     video_db = torch.load(AEMS_VID_EMBEDDINGS_PATH, weights_only=False)
     text_db = torch.load(TEXT_PATHS[args.text_variant].format(split="test"),
                          weights_only=False)

@@ -24,7 +24,7 @@ import clip
 from src.models.gating_network import GatingNetwork
 from src.evaluation.evaluate_retrieval import evaluate_retrieval
 from src.config import (DEVICE, set_seeds, AEMS_MANIFEST_PATH,
-                        AEMS_VID_EMBEDDINGS_PATH, AEMS_AUDIO_EMBEDDINGS_PATH,
+                        AEMS_VID_EMBEDDINGS_PATH, AEMS_CLAP_AUDIO_EMBEDDINGS_PATH,
                         AEMS_GATING_WEIGHTS_PATH,
                         AEMS_TEXT_EMBEDDINGS_FUSED_PATH_TEMPLATE)
 from src.data.metadata import load_metadata, filter_by_split
@@ -102,7 +102,7 @@ def audio_sim_for(db):
     return am, normalize(qembs.float() @ am.T)
 
 
-raw_audio_db = torch.load(AEMS_AUDIO_EMBEDDINGS_PATH, weights_only=False)
+raw_audio_db = torch.load(AEMS_CLAP_AUDIO_EMBEDDINGS_PATH, weights_only=False)
 
 variants = {}
 db_objects = {}

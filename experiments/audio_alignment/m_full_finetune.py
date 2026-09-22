@@ -23,7 +23,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from src.config import AEMS_MANIFEST_PATH, AEMS_AUDIO_EMBEDDINGS_PATH, set_seeds
+from src.config import AEMS_MANIFEST_PATH, AEMS_CLAP_AUDIO_EMBEDDINGS_PATH, set_seeds
 from src.data.metadata import load_metadata
 from experiments.audio_alignment.compare_utils import load_anchor_pairs, save_db
 from experiments.audio_alignment.audio_ft_utils import (
@@ -204,7 +204,7 @@ def main():
     print(f"\n[TIER3 result] audio->CLIP-text R@1={r1:.4f} MRR={mrr:.4f} (held-out test, deterministic)")
 
     print("Caching full-gallery waveforms for export...")
-    audio_db = torch.load(AEMS_AUDIO_EMBEDDINGS_PATH, map_location="cpu", weights_only=False)
+    audio_db = torch.load(AEMS_CLAP_AUDIO_EMBEDDINGS_PATH, map_location="cpu", weights_only=False)
     full_vids = sorted(audio_db.keys())
     full_waves = {}
     for v in full_vids:

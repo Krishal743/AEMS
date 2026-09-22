@@ -7,7 +7,7 @@ import torch
 import torch.nn.functional as F
 import numpy as np
 from src.encoders.clap_encode import CLAPEncoder
-from src.config import AEMS_AUDIO_EMBEDDINGS_PATH, DEVICE
+from src.config import AEMS_CLAP_AUDIO_EMBEDDINGS_PATH, DEVICE
 
 def check_audio_embeddings():
     """Step 1: Check if audio embeddings exist and have reasonable properties"""
@@ -16,8 +16,8 @@ def check_audio_embeddings():
     print("=" * 60)
     
     # Load audio embeddings
-    print(f"[LOAD] Loading audio embeddings from {AEMS_AUDIO_EMBEDDINGS_PATH}")
-    audio_db = torch.load(AEMS_AUDIO_EMBEDDINGS_PATH, weights_only=False)
+    print(f"[LOAD] Loading audio embeddings from {AEMS_CLAP_AUDIO_EMBEDDINGS_PATH}")
+    audio_db = torch.load(AEMS_CLAP_AUDIO_EMBEDDINGS_PATH, weights_only=False)
     
     print(f"[INFO] Number of audio embeddings: {len(audio_db)}")
     print(f"[INFO] Keys (video IDs): {list(audio_db.keys())[:5]}...")  # First 5 keys

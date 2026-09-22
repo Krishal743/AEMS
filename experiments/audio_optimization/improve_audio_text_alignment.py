@@ -7,7 +7,7 @@ import torch
 import torch.nn.functional as F
 import numpy as np
 from src.encoders.clap_encode import CLAPEncoder
-from src.config import AEMS_AUDIO_EMBEDDINGS_PATH, DEVICE
+from src.config import AEMS_CLAP_AUDIO_EMBEDDINGS_PATH, DEVICE
 
 def test_augmented_text_encoding():
     """Test different text encoding strategies to improve audio alignment"""
@@ -16,7 +16,7 @@ def test_augmented_text_encoding():
     print("=" * 60)
     
     # Load audio embeddings
-    audio_db = torch.load(AEMS_AUDIO_EMBEDDINGS_PATH, weights_only=False)
+    audio_db = torch.load(AEMS_CLAP_AUDIO_EMBEDDINGS_PATH, weights_only=False)
     audio_matrix = torch.stack([audio_db[vid] for vid in audio_db.keys()])
     
     # Test different text encoding strategies
@@ -156,7 +156,7 @@ def test_cross_modal_alignment():
     print("=" * 60)
     
     # Load audio embeddings
-    audio_db = torch.load(AEMS_AUDIO_EMBEDDINGS_PATH, weights_only=False)
+    audio_db = torch.load(AEMS_CLAP_AUDIO_EMBEDDINGS_PATH, weights_only=False)
     audio_matrix = torch.stack([audio_db[vid] for vid in audio_db.keys()])
     
     # Create test queries

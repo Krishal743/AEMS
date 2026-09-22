@@ -7,7 +7,7 @@ import torch
 import torch.nn.functional as F
 import numpy as np
 from src.encoders.clap_encode import CLAPEncoder
-from src.config import AEMS_AUDIO_EMBEDDINGS_PATH, DEVICE
+from src.config import AEMS_CLAP_AUDIO_EMBEDDINGS_PATH, DEVICE
 
 def test_alternative_audio_fusion():
     """Test different ways to combine audio with other modalities"""
@@ -16,7 +16,7 @@ def test_alternative_audio_fusion():
     print("=" * 60)
     
     # Load audio embeddings
-    audio_db = torch.load(AEMS_AUDIO_EMBEDDINGS_PATH, weights_only=False)
+    audio_db = torch.load(AEMS_CLAP_AUDIO_EMBEDDINGS_PATH, weights_only=False)
     audio_matrix = torch.stack([F.normalize(audio_db[vid].float(), dim=0) for vid in audio_db.keys()])
     
     print(f"[INFO] Audio matrix: {audio_matrix.shape}")

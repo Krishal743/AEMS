@@ -1,8 +1,7 @@
 import sys, json, torch, argparse, os, gc, time, random
 import clip
 import numpy as np
-from src.routing.query_router import load_gate
-from src.encoders.clap_encode import CLAPEncoder
+from src.routing.query_router import load_gate, zscore, fixed_weights
 from src.evaluation.evaluate_retrieval import evaluate_retrieval
 from src.config import (AEMS_MANIFEST_PATH, AEMS_VID_EMBEDDINGS_PATH, AEMS_AUDIO_EMBEDDINGS_PATH,
                          AEMS_VIDEO_EMBEDDINGS_TRANSFORMER_PATH, AEMS_GATING_WEIGHTS_PATH,
@@ -112,9 +111,6 @@ print("[MODEL] Loading CLIP...")
 clip_model, _ = clip.load("ViT-B/32", device=DEVICE)
 clip_model.eval()
 
-print("[MODEL] Loading CLAP...")
-clap_encoder = CLAPEncoder(device=DEVICE)
-
 
 def normalize(x):
     return x / x.norm(dim=-1, keepdim=True)
@@ -133,20 +129,7 @@ for i in range(0, len(queries), BATCH_SIZE):
 query_clip = torch.cat(clip_text_list, dim=0)
 print(f"  CLIP query shape: {query_clip.shape}")
 
-print("[ENC] Encoding queries via CLAP...")
-clap_text_list = []
-for i in range(0, len(queries), BATCH_SIZE):
-    batch = queries[i:i + BATCH_SIZE]
-    with torch.no_grad():
-        emb = clap_encoder.encode_text(batch)
-    if isinstance(emb, np.ndarray):
-        emb = torch.from_numpy(emb).float()
-    emb = normalize(emb)
-    clap_text_list.append(emb.cpu())
-query_clap = torch.cat(clap_text_list, dim=0)
-print(f"  CLAP query shape: {query_clap.shape}")
-
-del clip_model, clap_encoder
+del clip_model
 gc.collect()
 torch.cuda.empty_cache()
 
@@ -160,7 +143,7 @@ gc.collect()
 
 sim_v = query_clip.float() @ video_matrix.T
 sim_t = query_clip.float() @ text_matrix.T
-sim_a = query_clap.float() @ audio_matrix.T
+sim_a = query_clip.float() @ audio_matrix.T  # audio branch is adapter-projected into CLIP text space
 
 print(f"[SIM] sim_v: {sim_v.shape}, sim_t: {sim_t.shape}, sim_a: {sim_a.shape}")
 
@@ -180,9 +163,10 @@ if gate is not None:
         q = query_clip[i:i+BATCH_SIZE].float().to(DEVICE)
         with torch.no_grad():
             w = gate(q).cpu()
-        gated = (w[:, 0:1] * sim_v[i:i+BATCH_SIZE] +
-                 w[:, 1:2] * sim_t[i:i+BATCH_SIZE] +
-                 w[:, 2:3] * sim_a[i:i+BATCH_SIZE])
+        # same fusion as the router: gate weights over per-query z-scored branches
+        gated = (w[:, 0:1] * zscore(sim_v[i:i+BATCH_SIZE]) +
+                 w[:, 1:2] * zscore(sim_t[i:i+BATCH_SIZE]) +
+                 w[:, 2:3] * zscore(sim_a[i:i+BATCH_SIZE]))
         sim_gated_list.append(gated)
     sim_gated = torch.cat(sim_gated_list, dim=0)
 
@@ -192,6 +176,8 @@ systems = {
     "audio_only": sim_a,
     "equal_fusion": (sim_v + sim_t + sim_a) / 3,
 }
+fw = fixed_weights()
+systems["fixed_fusion"] = fw[0] * zscore(sim_v) + fw[1] * zscore(sim_t) + fw[2] * zscore(sim_a)
 if sim_gated is not None:
     systems["adaptive_gating"] = sim_gated
 
@@ -232,7 +218,7 @@ results = {
     "text_variant": args.text_variant,
     "checkpoint_ids": {
         "visual": visual_ckpt_id,
-        "audio": "aems_audio_embeddings_v1.pt",
+        "audio": os.path.basename(AEMS_AUDIO_EMBEDDINGS_PATH),
         "text": f"aems_text_embeddings_{args.text_variant}_test.pt",
         "gating_weights": os.path.basename(args.gate_weights) if gate_available else None,
     },

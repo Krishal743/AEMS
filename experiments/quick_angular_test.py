@@ -10,7 +10,7 @@ import numpy as np
 import clip
 from src.encoders.clap_encode import CLAPEncoder
 from src.evaluation.evaluate_retrieval import evaluate_retrieval
-from src.config import AEMS_MANIFEST_PATH, AEMS_VID_EMBEDDINGS_PATH, AEMS_AUDIO_EMBEDDINGS_PATH, AEMS_TEXT_EMBEDDINGS_FUSED_PATH_TEMPLATE, DEVICE
+from src.config import AEMS_MANIFEST_PATH, AEMS_VID_EMBEDDINGS_PATH, AEMS_CLAP_AUDIO_EMBEDDINGS_PATH, AEMS_TEXT_EMBEDDINGS_FUSED_PATH_TEMPLATE, DEVICE
 from src.data.metadata import load_metadata, filter_by_split
 
 def select_audio_heavy_queries():

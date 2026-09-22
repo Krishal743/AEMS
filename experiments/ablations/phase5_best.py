@@ -104,12 +104,12 @@ def train_and_eval_deep(data, config, epochs=30):
 if __name__ == '__main__':
     from types import SimpleNamespace
     from src.config import (AEMS_MANIFEST_PATH, AEMS_VID_EMBEDDINGS_PATH,
-                            AEMS_AUDIO_EMBEDDINGS_PATH, AEMS_TEXT_EMBEDDINGS_FUSED_PATH_TEMPLATE)
+                            AEMS_CLAP_AUDIO_EMBEDDINGS_PATH, AEMS_TEXT_EMBEDDINGS_FUSED_PATH_TEMPLATE)
     args = SimpleNamespace(
         seed=42,
         manifest=AEMS_MANIFEST_PATH,
         video_embeds=AEMS_VID_EMBEDDINGS_PATH,
-        audio_embeds=AEMS_AUDIO_EMBEDDINGS_PATH,
+        audio_embeds=AEMS_CLAP_AUDIO_EMBEDDINGS_PATH,
         text_embeds_train=AEMS_TEXT_EMBEDDINGS_FUSED_PATH_TEMPLATE.format(split="train"),
         text_embeds_test=AEMS_TEXT_EMBEDDINGS_FUSED_PATH_TEMPLATE.format(split="test"),
     )

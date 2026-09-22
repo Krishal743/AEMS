@@ -43,6 +43,9 @@ STAGES = {
         ("text_embeddings_fused_test", "bin/embeddings/precompute_text_embeddings.py",
          ["--split", "test", "--fusion", "fused"]),
     ],
+    "train_audio_adapter": [
+        ("train_audio_adapter", "bin/training/train_audio_adapter.py", []),
+    ],
     "train_transformer": [
         ("train_transformer", "bin/training/train_temporal_transformer.py",
          ["--epochs", "12"]),
@@ -63,19 +66,21 @@ REQUIRED_INPUTS = {
     "extract_frames": ["{manifest}"],
     "extract_audio": ["{manifest}"],
     "embed": ["{manifest}"],
+    "train_audio_adapter": ["embeddings/aems_audio_embeddings_wavlm_v1.pt",
+                            "embeddings/aems_text_embeddings_description_train.pt"],
     "train_transformer": ["embeddings/aems_video_embeddings_v1.pt"],
     "export_transformer": ["models/aems_temporal_transformer_best_v1.pth"],
     "train_gating": ["embeddings/aems_video_embeddings_v1.pt",
-                     "embeddings/aems_audio_embeddings_v1.pt",
+                     "embeddings/aems_audio_embeddings_wavlm_clip_v1.pt",
                      "embeddings/aems_text_embeddings_fused_train.pt",
                      "embeddings/aems_text_embeddings_fused_test.pt"],
     "eval": ["embeddings/aems_video_embeddings_v1.pt",
-             "embeddings/aems_audio_embeddings_v1.pt",
+             "embeddings/aems_audio_embeddings_wavlm_clip_v1.pt",
              "embeddings/aems_text_embeddings_fused_test.pt"],
 }
 
 STAGE_ORDER = ["preprocess", "extract_frames", "extract_audio", "embed",
-               "train_transformer", "export_transformer", "train_gating", "eval"]
+               "train_audio_adapter", "train_transformer", "export_transformer", "train_gating", "eval"]
 
 
 def log_message(msg):

@@ -24,7 +24,7 @@ import torch
 import torch.nn.functional as F
 
 from src.config import (
-    AEMS_AUDIO_EMBEDDINGS_PATH,
+    AEMS_CLAP_AUDIO_EMBEDDINGS_PATH,
     AEMS_TEXT_EMBEDDINGS_DESC_PATH_TEMPLATE,
     AEMS_MANIFEST_PATH,
     set_seeds,
@@ -56,7 +56,7 @@ def main():
     # ---- Load test anchors ----
     records = filter_by_split(load_metadata(AEMS_MANIFEST_PATH), split="test")
     test_ids = set(r["video_id"] for r in records)
-    audio_db = torch.load(AEMS_AUDIO_EMBEDDINGS_PATH, map_location="cpu",
+    audio_db = torch.load(AEMS_CLAP_AUDIO_EMBEDDINGS_PATH, map_location="cpu",
                           weights_only=False)
     text_db = torch.load(AEMS_TEXT_EMBEDDINGS_DESC_PATH_TEMPLATE.format(split="test"),
                          map_location="cpu", weights_only=False)

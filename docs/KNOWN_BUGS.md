@@ -36,7 +36,11 @@ Audio retrieval R@1 ≈ 0.0003 — 12% of test entries had no matching audio emb
 
 **Partially fixed**: Filtered test entries to only include videos present in `audio_embeddings.pt`. Root cause may be a CLAP encoding issue.
 
-**Update (AEMS)**: The query scripts scored the audio branch with a CLIP vector against CLAP embeddings (or the reverse for audio queries). `src/routing/query_router.py` now scores audio with a CLAP-space query. On the full AEMS test set (1,022 videos) audio-only is still R@1 = 0.004, so the space mismatch was not the whole cause. **Still open**: this is part of the recall work.
+**Update (AEMS)**: The query scripts scored the audio branch with a CLIP vector against CLAP embeddings (or the reverse for audio queries). That was fixed first; audio-only R@1 stayed at 0.004 on the full test set, so the space mismatch was not the cause.
+
+**Root cause**: CLAP itself. A clean comparison (validation-selected checkpoints, real QA test queries, 3 seeds) put zero-shot CLAP at R@1 0.004 against WavLM-Large + adapter at 0.053. AEMS is entirely speech-heavy educational video, so an audio encoder adds little beyond the transcript already in the text branch.
+
+**Status**: Addressed on `feat/new-audio-pipeline` by replacing CLAP with WavLM + adapter. Audio remains the weakest branch by design; see Bug 10.
 
 ## Bug 5: LEXICON_LOGGING undefined in run_query_routing.py ✅ Fixed
 
@@ -73,3 +77,29 @@ After freeing CLIP, the test pass scored the first N *train* query embeddings ag
 28 `from scripts.alignment…` / `from scripts.ablation…` imports across 17 files in `experiments/` crashed on import after the restructure.
 
 **Status**: ✅ Fixed. They now point at the `experiments` package.
+
+## Bug 10: Branch scores were fused on incompatible scales ✅ Fixed
+
+**Files**: `src/routing/query_router.py`, `bin/evaluation/eval_aems_retrieval.py`, `bin/training/train_gating_network.py`
+
+Visual, text and audio cosine similarities have different means and spreads, so
+summing them raw let one branch dominate: equal fusion scored R@1 0.083 against
+0.389 for text alone, and the trained gate collapsed onto text for every query
+(making "adaptive gating" identical to text-only search).
+
+**Status**: ✅ Fixed on `feat/new-audio-pipeline`. Each branch is z-scored per
+query across the gallery before fusion, with weights from `AEMS_FUSION_WEIGHTS`
+or the gate (`--fusion gate`). The gating trainer now uses the same fusion it is
+deployed with; the old angular-similarity and per-modality scale constants,
+which inference never applied, are gone.
+
+## Bug 11: CLAP precompute saved the previous video's embedding for short clips ✅ Fixed
+
+**File**: `bin/embeddings/precompute_audio_embeddings.py`
+
+For audio of 10 s or less the script computed `emb` but stored `audio_embed`,
+a variable left over from the previous iteration (or undefined on the first
+video).
+
+**Status**: ✅ Fixed — the script now extracts WavLM features and has a single
+code path for all clip lengths.

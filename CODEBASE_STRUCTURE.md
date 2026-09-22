@@ -14,7 +14,8 @@ src/
 │   └── temporal_transformer.py   # Temporal transformer for video frames
 ├── encoders/            # Feature extraction
 │   ├── clip_encode.py           # CLIP encoder (vision & text)
-│   └── clap_encode.py           # CLAP encoder (audio)
+│   ├── wavlm_encode.py          # WavLM-Large encoder (audio)
+│   └── clap_encode.py           # CLAP encoder (used by experiments/)
 ├── data/                # Data loading & processing
 │   ├── aems_dataset.py          # AEMS dataset class
 │   ├── datasets.py              # Generic dataset utilities
@@ -50,12 +51,13 @@ bin/
 │
 ├── embeddings/          # Feature embedding generation
 │   ├── precompute_video_embeddings.py    # CLIP video embeddings
-│   ├── precompute_audio_embeddings.py    # CLAP audio embeddings (3 segments)
+│   ├── precompute_audio_embeddings.py    # WavLM audio features (3 segments)
 │   ├── precompute_text_embeddings.py     # CLIP text embeddings
 │   └── *_legacy.py                       # Legacy/reference implementations
 │
 ├── training/            # Model training & export
 │   ├── train_temporal_transformer.py     # Train video frame transformer
+│   ├── train_audio_adapter.py           # WavLM -> CLIP audio adapter + audio branch export
 │   ├── train_gating_network.py          # Train multimodal gating network
 │   ├── export_transformer_embeddings.py  # Export transformer features
 │   └── cleanup_checkpoints.py           # Checkpoint management
@@ -220,6 +222,7 @@ python bin/training/train_temporal_transformer.py
 python bin/training/export_transformer_embeddings.py
 
 # Train gating network
+python bin/training/train_audio_adapter.py
 python bin/training/train_gating_network.py
 ```
 

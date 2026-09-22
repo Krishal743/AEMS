@@ -12,7 +12,7 @@ import numpy as np
 from src.encoders.clap_encode import CLAPEncoder
 from src.models.gating_network import GatingNetwork, GatingNetworkPerCandidate
 from src.evaluation.evaluate_retrieval import evaluate_retrieval
-from src.config import (AEMS_MANIFEST_PATH, AEMS_VID_EMBEDDINGS_PATH, AEMS_AUDIO_EMBEDDINGS_PATH,
+from src.config import (AEMS_MANIFEST_PATH, AEMS_VID_EMBEDDINGS_PATH, AEMS_CLAP_AUDIO_EMBEDDINGS_PATH,
                          AEMS_TEXT_EMBEDDINGS_FUSED_PATH_TEMPLATE, DEVICE, set_seeds)
 from src.data.metadata import load_metadata, filter_by_split
 
@@ -467,7 +467,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--manifest", type=str, default=AEMS_MANIFEST_PATH)
     parser.add_argument("--video-embeds", type=str, default=AEMS_VID_EMBEDDINGS_PATH)
-    parser.add_argument("--audio-embeds", type=str, default=AEMS_AUDIO_EMBEDDINGS_PATH)
+    parser.add_argument("--audio-embeds", type=str, default=AEMS_CLAP_AUDIO_EMBEDDINGS_PATH)
     parser.add_argument("--text-embeds-train", type=str, default=AEMS_TEXT_EMBEDDINGS_FUSED_PATH_TEMPLATE.format(split="train"))
     parser.add_argument("--text-embeds-test", type=str, default=AEMS_TEXT_EMBEDDINGS_FUSED_PATH_TEMPLATE.format(split="test"))
     parser.add_argument("--method", type=str, default="all",

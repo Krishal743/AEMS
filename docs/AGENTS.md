@@ -20,7 +20,8 @@ team23/
 │   │   └── temporal_transformer.py  # 2-layer TransformerEncoder
 │   ├── encoders/
 │   │   ├── clip_encode.py     # CLIP model loading, video/text encoding
-│   │   └── clap_encode.py     # CLAPEncoder class
+│   │   ├── wavlm_encode.py    # WavLMEncoder class (audio branch)
+│   │   └── clap_encode.py     # CLAPEncoder class (experiments/ only)
 │   ├── data/
 │   │   ├── datasets.py        # MSRVTTDataset (PyTorch Dataset)
 │   │   └── metadata.py        # JSON loading, split filtering, common video ID utils
@@ -78,7 +79,8 @@ The query scripts (`bin/queries/`) and demo (`bin/demo/`) sit at the end of the 
 | | `bin/data/extract_frames.py` | Exactly 16 uniform frames per video |
 | | `bin/data/extract_audio.py` | Three 10s audio segments per video |
 | **Embeddings** | `bin/embeddings/precompute_video_embeddings.py` | CLIP encode → `aems_video_embeddings_v1.pt` |
-| | `bin/embeddings/precompute_audio_embeddings.py` | CLAP encode → `aems_audio_embeddings_v1.pt` |
+| | `bin/embeddings/precompute_audio_embeddings.py` | WavLM-Large → `aems_audio_embeddings_wavlm_v1.pt` (1024-d) |
+| | `bin/training/train_audio_adapter.py` | WavLM → CLIP adapter → `aems_audio_embeddings_wavlm_clip_v1.pt` (audio branch) |
 | | `bin/embeddings/precompute_text_embeddings.py` | CLIP text encode; `--fusion description\|transcript\|fused` |
 | **Models** | `bin/training/train_gating_network.py` | **Main gating network** (train + eval, ranking loss) |
 | | `bin/training/train_temporal_transformer.py` | 2-layer transformer over 16 frames, InfoNCE loss |
@@ -93,23 +95,26 @@ The query scripts (`bin/queries/`) and demo (`bin/demo/`) sit at the end of the 
 Always use the `src` package for reusable modules:
 ```python
 from src.evaluation.evaluate_retrieval import evaluate_retrieval
-from src.encoders.clap_encode import CLAPEncoder
+from src.encoders.wavlm_encode import WavLMEncoder
 from src.encoders.clip_encode import load_clip_model, encode_texts
 from src.data.datasets import MSRVTTDataset
 from src.data.metadata import load_metadata, get_common_video_ids
 from src.models.gating_network import GatingNetwork
+from src.models.audio_adapter import AudioAdapter, load_audio_adapter
 from src.models.temporal_transformer import TemporalTransformer
 from src.config import DEVICE, set_seeds
 from src.explainability.explain_retrieval import explain_modality_contributions, explain_gating_decision, format_explanation
-from src.routing.query_router import load_search_index, load_gate, search
+from src.routing.query_router import load_search_index, load_gate, search, zscore, fixed_weights
 ```
 
 ## Embedding DBs
 
-Three dicts keyed by `video_id`, saved via `torch.save()` and loaded with `torch.load(..., weights_only=False)`:
+Dicts keyed by `video_id`, saved via `torch.save()` and loaded with `torch.load(..., weights_only=False)`:
 - `embeddings/video_embeddings.pt` — CLIP visual, 512-dim per video (10K videos, mean-pooled)
 - `embeddings/video_embeddings_transformer.pt` — Temporal Transformer output (9,087 videos)
-- `embeddings/audio_embeddings.pt` — CLAP audio, 512-dim per video (8,809 videos)
+- `embeddings/aems_audio_embeddings_wavlm_v1.pt` — raw WavLM-Large audio features, 1024-dim (adapter input, not searchable)
+- `embeddings/aems_audio_embeddings_wavlm_clip_v1.pt` — **the audio branch**: WavLM projected into CLIP text space, 512-dim
+- `embeddings/aems_audio_embeddings_v1.pt` — legacy CLAP audio, 512-dim (CLAP space; `experiments/` only, via `AEMS_CLAP_AUDIO_EMBEDDINGS_PATH`)
 - `embeddings/caption_embeddings.pt` — CLIP text, 20×512-dim per video (MAX-aggregated at query time, test split only)
 - `embeddings/caption_embeddings_train.pt` — Train split caption embeddings (when available)
 - `embeddings/caption_embeddings_test.pt` — Test split caption embeddings
@@ -159,7 +164,8 @@ It writes a stratified 85/15 per-category split to `data/processed/aems/metadata
 ## Dependencies
 
 See `requirements.txt`. Key non-obvious ones:
-- `laion_clap` (imported as `laion_clap.CLAP_Module`, `enable_fusion=False`)
+- `torchaudio` (`torchaudio.pipelines.WAVLM_LARGE` for the audio branch)
+- `laion_clap` (imported as `laion_clap.CLAP_Module`, `enable_fusion=False`) — `experiments/` only
 - `clip` (OpenAI CLIP: `pip install git+https://github.com/openai/CLIP.git`)
 - `PIL`, `librosa`, `soundfile`, `moviepy`, `tqdm`
 

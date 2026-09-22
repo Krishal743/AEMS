@@ -1,6 +1,6 @@
 # AEMS/FineVideo Multimodal Retrieval System
 
-A comprehensive multimodal video retrieval system using CLIP (vision/text) and CLAP (audio) encoders with learned gating networks for dynamic modality weighting.
+A comprehensive multimodal video retrieval system using CLIP (vision/text) and WavLM (audio, projected into CLIP space by a trained adapter), fused with per-query z-scored similarities.
 
 ## 🎯 Quick Start
 
@@ -19,7 +19,7 @@ python bin/data/extract_audio.py
 ### Feature Extraction
 ```bash
 python bin/embeddings/precompute_video_embeddings.py
-python bin/embeddings/precompute_audio_embeddings.py
+python bin/embeddings/precompute_audio_embeddings.py   # raw WavLM features
 python bin/embeddings/precompute_text_embeddings.py
 ```
 
@@ -27,7 +27,8 @@ python bin/embeddings/precompute_text_embeddings.py
 ```bash
 python bin/training/train_temporal_transformer.py
 python bin/training/export_transformer_embeddings.py
-python bin/training/train_gating_network.py
+python bin/training/train_audio_adapter.py        # WavLM -> CLIP audio branch
+python bin/training/train_gating_network.py       # optional: --fusion gate
 ```
 
 ### Evaluation
@@ -82,7 +83,8 @@ team23/
 
 ### Core Components (src/)
 - **Models**: Gating networks & temporal transformers
-- **Encoders**: CLIP (vision/text) and CLAP (audio)
+- **Encoders**: CLIP (vision/text) and WavLM-Large + adapter (audio)
+- **Fusion**: per-query z-scored branch similarities, fixed weights (`AEMS_FUSION_WEIGHTS`) or the gating network (`--fusion gate`)
 - **Data**: Dataset loaders and metadata utilities
 - **Routing**: Query encoding and multimodal similarity computation
 - **Evaluation**: Retrieval metrics and analysis

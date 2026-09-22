@@ -8,7 +8,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
 from src.encoders.clap_encode import CLAPEncoder
-from src.config import AEMS_AUDIO_EMBEDDINGS_PATH, DEVICE
+from src.config import AEMS_CLAP_AUDIO_EMBEDDINGS_PATH, DEVICE
 
 def test_angular_similarity():
     """Test angular similarity instead of cosine similarity"""
@@ -17,7 +17,7 @@ def test_angular_similarity():
     print("=" * 60)
     
     # Load audio embeddings
-    audio_db = torch.load(AEMS_AUDIO_EMBEDDINGS_PATH, weights_only=False)
+    audio_db = torch.load(AEMS_CLAP_AUDIO_EMBEDDINGS_PATH, weights_only=False)
     audio_matrix = torch.stack([audio_db[vid] for vid in audio_db.keys()])
     
     # Create test queries
@@ -103,7 +103,7 @@ def test_learned_similarity_scaling():
     print("=" * 60)
     
     # Load audio embeddings
-    audio_db = torch.load(AEMS_AUDIO_EMBEDDINGS_PATH, weights_only=False)
+    audio_db = torch.load(AEMS_CLAP_AUDIO_EMBEDDINGS_PATH, weights_only=False)
     audio_matrix = torch.stack([audio_db[vid] for vid in audio_db.keys()])
     
     # Create training data (simulated)

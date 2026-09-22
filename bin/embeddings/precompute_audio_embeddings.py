@@ -1,83 +1,49 @@
-import argparse, os, gc
-import torch
-import torch.nn.functional as F
-import numpy as np
+"""Precompute raw WavLM-Large audio features (1024-d, 3 fixed 10 s segments).
+
+These are adapter inputs, not the searchable audio branch: run
+bin/training/train_audio_adapter.py afterwards to project them into CLIP space
+(AEMS_AUDIO_EMBEDDINGS_PATH).
+"""
+
+import argparse, os
 import librosa
+import torch
 from tqdm import tqdm
-from src.encoders.clap_encode import CLAPEncoder
-from src.config import (AEMS_MANIFEST_PATH, AEMS_AUDIO_DIR, AEMS_AUDIO_EMBEDDINGS_PATH,
-                         AEMS_AUDIO_SR, AEMS_AUDIO_CLIP_SEC, DEVICE, set_seeds)
+from src.encoders.wavlm_encode import WavLMEncoder
+from src.config import (AEMS_MANIFEST_PATH, AEMS_AUDIO_DIR, AEMS_WAVLM_FEATURES_PATH,
+                        AEMS_WAVLM_SR, DEVICE, set_seeds)
 from src.data.metadata import load_metadata
 
-parser = argparse.ArgumentParser(description="Precompute AEMS audio embeddings (3-segment CLAP)")
+parser = argparse.ArgumentParser(description="Precompute AEMS WavLM audio features")
 parser.add_argument("--manifest", type=str, default=AEMS_MANIFEST_PATH)
 parser.add_argument("--audio-dir", type=str, default=AEMS_AUDIO_DIR)
+parser.add_argument("--output", type=str, default=AEMS_WAVLM_FEATURES_PATH)
 parser.add_argument("--seed", type=int, default=42)
 args = parser.parse_args()
 
 set_seeds(args.seed)
-os.makedirs("embeddings", exist_ok=True)
-SEGMENT_DURATION = AEMS_AUDIO_CLIP_SEC
-NUM_SEGMENTS = 3
+os.makedirs(os.path.dirname(args.output), exist_ok=True)
 
-print(f"[INIT] Loading CLAP on {DEVICE}")
-encoder = CLAPEncoder(device=DEVICE)
+print(f"[INIT] Loading WavLM-Large on {DEVICE}")
+encoder = WavLMEncoder(device=DEVICE)
 
 print(f"[DATA] Loading manifest: {args.manifest}")
-records = load_metadata(args.manifest)
-videos = {}
-for item in records:
-    vid = item["video_id"]
-    if vid not in videos:
-        videos[vid] = os.path.join(args.audio_dir, f"{vid}.wav")
+videos = sorted({r["video_id"] for r in load_metadata(args.manifest)})
 
 out = {}
 skipped = 0
-
-for vid, audio_path in tqdm(videos.items(), desc="Encoding audio"):
-    if not os.path.exists(audio_path):
+for vid in tqdm(videos, desc="Encoding audio"):
+    path = os.path.join(args.audio_dir, f"{vid}.wav")
+    if not os.path.exists(path):
         skipped += 1
         continue
     try:
-        audio, sr = librosa.load(audio_path, sr=AEMS_AUDIO_SR, mono=True)
+        wav, _ = librosa.load(path, sr=AEMS_WAVLM_SR, mono=True)
     except Exception:
         skipped += 1
         continue
-    duration_sec = len(audio) / AEMS_AUDIO_SR
-    segment_samples = SEGMENT_DURATION * AEMS_AUDIO_SR
+    out[vid] = encoder.encode_wave(wav)
 
-    if duration_sec <= SEGMENT_DURATION:
-        segment = audio[:segment_samples]
-        if len(segment) < segment_samples:
-            segment = np.pad(segment, (0, segment_samples - len(segment)))
-        x = segment.astype("float32").reshape(1, -1)
-        with torch.no_grad():
-            emb = encoder.model.get_audio_embedding_from_data(x=x)
-        if isinstance(emb, np.ndarray):
-            emb = torch.from_numpy(emb).float()
-        emb = F.normalize(emb, dim=-1).squeeze(0).cpu()
-    else:
-        seg_offsets = [
-            0,
-            int((duration_sec - SEGMENT_DURATION) / 2 * AEMS_AUDIO_SR),
-            int((duration_sec - SEGMENT_DURATION) * AEMS_AUDIO_SR),
-        ]
-        segment_embeds = []
-        for offset in seg_offsets:
-            segment = audio[offset:offset + segment_samples]
-            if len(segment) < segment_samples:
-                segment = np.pad(segment, (0, segment_samples - len(segment)))
-            x = segment.astype("float32").reshape(1, -1)
-            with torch.no_grad():
-                emb = encoder.model.get_audio_embedding_from_data(x=x)
-            if isinstance(emb, np.ndarray):
-                emb = torch.from_numpy(emb).float()
-            emb = F.normalize(emb, dim=-1).squeeze(0).cpu()
-            segment_embeds.append(emb)
-        audio_embed = torch.stack(segment_embeds).mean(dim=0)
-        audio_embed = F.normalize(audio_embed, dim=0)
-    out[vid] = audio_embed
-
-torch.save(out, AEMS_AUDIO_EMBEDDINGS_PATH)
-print(f"\n[DONE] Saved {len(out)} embeddings to {AEMS_AUDIO_EMBEDDINGS_PATH}")
+torch.save(out, args.output)
+print(f"\n[DONE] Saved {len(out)} features to {args.output}")
 print(f"       Skipped: {skipped}")

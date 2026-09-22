@@ -26,7 +26,7 @@ from experiments.audio_alignment.compare_utils import (
     load_anchor_pairs, ridge_fit, procrustes_map, whitening_stats, apply_whiten,
     cca_directions, local_scaling, evaluate_method,
 )
-from src.config import AEMS_AUDIO_EMBEDDINGS_PATH, AEMS_MANIFEST_PATH, set_seeds
+from src.config import AEMS_CLAP_AUDIO_EMBEDDINGS_PATH, AEMS_MANIFEST_PATH, set_seeds
 from src.data.metadata import load_metadata, filter_by_split
 
 OUTPUT_DIR = "outputs/alignment"
@@ -63,7 +63,7 @@ def main():
     # Test anchors for evaluation
     X_te, Y_te, te_vids = load_anchor_pairs("test")
     # Full gallery (all videos) for export
-    audio_db = torch.load(AEMS_AUDIO_EMBEDDINGS_PATH, map_location="cpu",
+    audio_db = torch.load(AEMS_CLAP_AUDIO_EMBEDDINGS_PATH, map_location="cpu",
                           weights_only=False)
     full_vids = sorted(audio_db.keys())
     X_full = F.normalize(torch.stack([audio_db[v].float() for v in full_vids]), dim=-1)

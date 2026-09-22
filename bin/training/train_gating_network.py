@@ -5,27 +5,13 @@ import torch.nn.functional as F
 import clip
 import random
 import numpy as np
-from src.encoders.clap_encode import CLAPEncoder
 from src.models.gating_network import GatingNetwork
+from src.routing.query_router import zscore
 from src.evaluation.evaluate_retrieval import evaluate_retrieval
 from src.config import (AEMS_MANIFEST_PATH, AEMS_VID_EMBEDDINGS_PATH, AEMS_AUDIO_EMBEDDINGS_PATH,
                          AEMS_TEXT_EMBEDDINGS_FUSED_PATH_TEMPLATE, AEMS_GATING_WEIGHTS_PATH,
                          DEVICE, set_seeds)
 from src.data.metadata import load_metadata, filter_by_split
-
-def angular_similarity(query_emb, video_emb, temperature=1.0):
-    """
-    Compute angular similarity between query and video embeddings
-    Angular similarity = 1 - angle/π = 1 - arccos(cosine_similarity)/π
-    Temperature scaling can be applied to focus on top matches
-    """
-    cosine_sim = query_emb @ video_emb.T
-    # Compute angular similarity
-    angular_sim = 1 - torch.acos(torch.clamp(cosine_sim, -1, 1)) / np.pi
-    # Apply temperature scaling
-    if temperature != 1.0:
-        angular_sim = angular_sim / temperature
-    return angular_sim
 
 set_seeds(42)
 
@@ -37,14 +23,10 @@ LEARNING_RATE = 1e-3
 RANKING_MARGIN = 0.2
 NUM_NEGATIVES = 10
 
-# Priority 1 Optimizations
-ANGULAR_SIMILARITY = True  # Use angular similarity instead of cosine
-TEMPERATURE_AUDIO = 0.5  # Temperature scaling for audio similarities
-TEMPERANCE_TEXT = 1.0  # Temperature scaling for text similarities
-TEMPERANCE_VISUAL = 1.0  # Temperature scaling for visual similarities
-MODALITY_SCALE_AUDIO = 0.8  # Scale factor for audio normalization
-MODALITY_SCALE_TEXT = 1.0  # Scale factor for text normalization
-MODALITY_SCALE_VISUAL = 1.0  # Scale factor for visual normalization
+# Fusion matches the router (src/routing/query_router.py): each branch's cosine
+# similarities are z-scored per query over the candidates, then gate-weighted.
+# The audio branch is adapter-projected into CLIP text space, so all three
+# branches are scored with the CLIP query.
 
 parser = argparse.ArgumentParser(description="Train AEMS Gating Network")
 parser.add_argument("--manifest", type=str, default=AEMS_MANIFEST_PATH)
@@ -130,9 +112,6 @@ text_matrix_test = torch.stack([F.normalize(text_db_test[vid].float(), dim=0) fo
 print(f"[EMB] Full video matrix: {video_matrix.shape}", flush=True)
 print(f"[EMB] Test video matrix: {video_matrix_test.shape}", flush=True)
 
-print("[CLAP] Encoding queries for audio similarity...", flush=True)
-clap_encoder = CLAPEncoder(device=DEVICE)
-
 
 def encode_clip_queries(texts, batch_size=32):
     all_emb = []
@@ -149,36 +128,15 @@ def encode_clip_queries(texts, batch_size=32):
     return torch.cat(all_emb, dim=0)
 
 
-def encode_clap_queries(texts, batch_size=32):
-    all_emb = []
-    for i in range(0, len(texts), batch_size):
-        batch = texts[i:i + batch_size]
-        with torch.no_grad():
-            emb = clap_encoder.encode_text(batch)
-        if isinstance(emb, np.ndarray):
-            emb = torch.from_numpy(emb).float()
-        emb = F.normalize(emb, dim=-1)
-        all_emb.append(emb.cpu())
-        del emb
-        gc.collect()
-        torch.cuda.empty_cache()
-    return torch.cat(all_emb, dim=0)
-
-
 print("[CLIP] Encoding train queries...", flush=True)
 train_query_clip = encode_clip_queries(train_queries)
 print(f"  Train CLIP queries: {train_query_clip.shape}", flush=True)
 
-print("[CLAP] Encoding train queries...", flush=True)
-train_query_clap = encode_clap_queries(train_queries)
-print(f"  Train CLAP queries: {train_query_clap.shape}", flush=True)
-
-print("[CLIP/CLAP] Encoding test queries...", flush=True)
+print("[CLIP] Encoding test queries...", flush=True)
 test_query_clip = encode_clip_queries(test_queries)
-test_query_clap = encode_clap_queries(test_queries)
 print(f"  Test queries: {test_query_clip.shape}", flush=True)
 
-del clip_model, clap_encoder
+del clip_model
 gc.collect()
 torch.cuda.empty_cache()
 
@@ -190,17 +148,6 @@ optimizer = torch.optim.Adam(gating_net.parameters(), lr=LEARNING_RATE)
 num_train = len(train_queries)
 num_candidates = len(common_vids_all)
 print(f"\n[TRAIN] Training gating network for {args.epochs} epochs ({num_candidates} candidates)...", flush=True)
-
-# Print Priority 1 Optimizations
-print("[OPTIMIZATIONS] Priority 1 Optimizations:", flush=True)
-print(f"  - Angular Similarity: {ANGULAR_SIMILARITY}", flush=True)
-if ANGULAR_SIMILARITY:
-    print(f"  - Temperature (Audio): {TEMPERATURE_AUDIO}", flush=True)
-    print(f"  - Temperature (Text): {TEMPERANCE_TEXT}", flush=True)
-    print(f"  - Temperature (Visual): {TEMPERANCE_VISUAL}", flush=True)
-    print(f"  - Modality Scale (Audio): {MODALITY_SCALE_AUDIO}", flush=True)
-    print(f"  - Modality Scale (Text): {MODALITY_SCALE_TEXT}", flush=True)
-    print(f"  - Modality Scale (Visual): {MODALITY_SCALE_VISUAL}", flush=True)
 
 for epoch in range(args.epochs):
     gating_net.train()
@@ -216,7 +163,6 @@ for epoch in range(args.epochs):
 
         batch_indices = indices[q_start:q_end]
         query_batch = train_query_clip[batch_indices].float().to(DEVICE)
-        query_batch_clap = train_query_clap[batch_indices].float().to(DEVICE)
 
         batch_sim_shape = (batch_len, num_candidates)
         all_sim_v = torch.zeros(batch_sim_shape, device=DEVICE)
@@ -229,15 +175,9 @@ for epoch in range(args.epochs):
             vb_a = audio_matrix[v_start:v_end].float().to(DEVICE)
             vb_t = text_matrix_full[v_start:v_end].float().to(DEVICE)
 
-            # Use angular similarity with temperature scaling
-            if ANGULAR_SIMILARITY:
-                all_sim_v[:, v_start:v_end] = angular_similarity(query_batch, vb_v, temperature=TEMPERANCE_VISUAL)
-                all_sim_a[:, v_start:v_end] = angular_similarity(query_batch_clap, vb_a, temperature=TEMPERATURE_AUDIO)
-                all_sim_t[:, v_start:v_end] = angular_similarity(query_batch, vb_t, temperature=TEMPERANCE_TEXT)
-            else:
-                all_sim_v[:, v_start:v_end] = query_batch @ vb_v.T
-                all_sim_a[:, v_start:v_end] = query_batch_clap @ vb_a.T
-                all_sim_t[:, v_start:v_end] = query_batch @ vb_t.T
+            all_sim_v[:, v_start:v_end] = query_batch @ vb_v.T
+            all_sim_a[:, v_start:v_end] = query_batch @ vb_a.T
+            all_sim_t[:, v_start:v_end] = query_batch @ vb_t.T
 
             del vb_v, vb_a, vb_t
 
@@ -245,15 +185,10 @@ for epoch in range(args.epochs):
 
         weights = gating_net(query_batch)
 
-        # Apply modality-specific normalization with scaling factors
-        all_sim_v_scaled = all_sim_v * MODALITY_SCALE_VISUAL
-        all_sim_t_scaled = all_sim_t * MODALITY_SCALE_TEXT
-        all_sim_a_scaled = all_sim_a * MODALITY_SCALE_AUDIO
-
         sim_gated = (
-            weights[:, 0:1] * all_sim_v_scaled.to(DEVICE) +
-            weights[:, 1:2] * all_sim_t_scaled.to(DEVICE) +
-            weights[:, 2:3] * all_sim_a_scaled.to(DEVICE)
+            weights[:, 0:1] * zscore(all_sim_v) +
+            weights[:, 1:2] * zscore(all_sim_t) +
+            weights[:, 2:3] * zscore(all_sim_a)
         )
 
         correct_indices = torch.tensor([video_id_to_idx[train_query_video_ids[batch_indices[i_idx]]] 
@@ -282,7 +217,7 @@ for epoch in range(args.epochs):
         total_loss += loss
         num_batches += 1
 
-        del query_batch, query_batch_clap, all_sim_v, all_sim_a, all_sim_t, weights, sim_gated, loss
+        del query_batch, all_sim_v, all_sim_a, all_sim_t, weights, sim_gated, loss
 
     avg_loss = (total_loss / max(num_batches, 1)).item()
     print(f"  Epoch {epoch+1}/{args.epochs}  Loss: {avg_loss:.4f}", flush=True)
@@ -302,33 +237,18 @@ torch.save(gating_net.state_dict(), AEMS_GATING_WEIGHTS_PATH)
 print("\n[EVAL] Evaluating on test queries against test candidates...", flush=True)
 gating_net.eval()
 
-# Use angular similarity for evaluation
-if ANGULAR_SIMILARITY:
-    sim_v = angular_similarity(test_query_clip.float(), video_matrix_test, temperature=TEMPERANCE_VISUAL).to(DEVICE)
-    sim_a = angular_similarity(test_query_clap.float(), audio_matrix_test, temperature=TEMPERATURE_AUDIO).to(DEVICE)
-    sim_t = angular_similarity(test_query_clip.float(), text_matrix_test, temperature=TEMPERANCE_TEXT).to(DEVICE)
-else:
-    sim_v = F.normalize(test_query_clip.float() @ video_matrix_test.T, dim=1).to(DEVICE)
-    sim_a = F.normalize(test_query_clap.float() @ audio_matrix_test.T, dim=1).to(DEVICE)
-    sim_t = F.normalize(test_query_clip.float() @ text_matrix_test.T, dim=1).to(DEVICE)
+sim_v = zscore(test_query_clip.float() @ video_matrix_test.T).to(DEVICE)
+sim_a = zscore(test_query_clip.float() @ audio_matrix_test.T).to(DEVICE)
+sim_t = zscore(test_query_clip.float() @ text_matrix_test.T).to(DEVICE)
 
 sim_gated_list = []
 for i in range(0, len(test_queries), QUERY_BATCH_SIZE):
     q = test_query_clip[i:i+QUERY_BATCH_SIZE].float().to(DEVICE)
     with torch.no_grad():
         w = gating_net(q)
-        sim_v_batch = sim_v[i:i+QUERY_BATCH_SIZE]
-        sim_t_batch = sim_t[i:i+QUERY_BATCH_SIZE]
-        sim_a_batch = sim_a[i:i+QUERY_BATCH_SIZE]
-
-        # Apply modality-specific scaling in evaluation
-        sim_v_scaled = sim_v_batch * MODALITY_SCALE_VISUAL
-        sim_t_scaled = sim_t_batch * MODALITY_SCALE_TEXT
-        sim_a_scaled = sim_a_batch * MODALITY_SCALE_AUDIO
-
-        gated = (w[:, 0:1] * sim_v_scaled +
-                 w[:, 1:2] * sim_t_scaled +
-                 w[:, 2:3] * sim_a_scaled)
+        gated = (w[:, 0:1] * sim_v[i:i+QUERY_BATCH_SIZE] +
+                 w[:, 1:2] * sim_t[i:i+QUERY_BATCH_SIZE] +
+                 w[:, 2:3] * sim_a[i:i+QUERY_BATCH_SIZE])
     sim_gated_list.append(gated.cpu())
 sim_gated = torch.cat(sim_gated_list, dim=0)
 

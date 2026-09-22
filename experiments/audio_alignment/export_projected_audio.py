@@ -20,7 +20,7 @@ import torch
 import torch.nn.functional as F
 
 from src.config import (
-    AEMS_AUDIO_EMBEDDINGS_PATH,
+    AEMS_CLAP_AUDIO_EMBEDDINGS_PATH,
     set_seeds,
 )
 
@@ -37,7 +37,7 @@ def normalize_row(x):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--model", type=str, default=MODEL_PATH)
-    parser.add_argument("--audio-embeds", type=str, default=AEMS_AUDIO_EMBEDDINGS_PATH)
+    parser.add_argument("--audio-embeds", type=str, default=AEMS_CLAP_AUDIO_EMBEDDINGS_PATH)
     parser.add_argument("--out", type=str, default=OUTPUT_PATH)
     parser.add_argument("--seed", type=int, default=42)
     args = parser.parse_args()

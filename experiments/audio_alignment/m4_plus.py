@@ -30,7 +30,7 @@ from torch.utils.data import DataLoader, TensorDataset
 
 from experiments.audio_alignment.compare_utils import load_anchor_pairs, save_db
 from experiments.audio_alignment.m4_adapter_contrastive import AudioAdapter, quick_r1, quick_mrr
-from src.config import AEMS_MANIFEST_PATH, AEMS_AUDIO_EMBEDDINGS_PATH, set_seeds
+from src.config import AEMS_MANIFEST_PATH, AEMS_CLAP_AUDIO_EMBEDDINGS_PATH, set_seeds
 from src.data.metadata import load_metadata, filter_by_split
 
 OUTPUT_DIR = "outputs/alignment"
@@ -217,7 +217,7 @@ def main():
     model.eval()
     with torch.no_grad():
         proj_te = model.encode(X_te.to(device)).cpu()
-        audio_db = torch.load(AEMS_AUDIO_EMBEDDINGS_PATH, map_location="cpu", weights_only=False)
+        audio_db = torch.load(AEMS_CLAP_AUDIO_EMBEDDINGS_PATH, map_location="cpu", weights_only=False)
         full_vids = sorted(audio_db.keys())
         X_full = F.normalize(torch.stack([audio_db[v].float() for v in full_vids]), dim=-1)
         proj_full = model.encode(X_full.to(device)).cpu()

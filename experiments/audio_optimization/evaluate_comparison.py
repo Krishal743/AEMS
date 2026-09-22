@@ -9,7 +9,7 @@ import torch.nn.functional as F
 import json
 from src.encoders.clap_encode import CLAPEncoder
 from src.evaluation.evaluate_retrieval import evaluate_retrieval
-from src.config import (AEMS_MANIFEST_PATH, AEMS_VID_EMBEDDINGS_PATH, AEMS_AUDIO_EMBEDDINGS_PATH,
+from src.config import (AEMS_MANIFEST_PATH, AEMS_VID_EMBEDDINGS_PATH, AEMS_CLAP_AUDIO_EMBEDDINGS_PATH,
                          AEMS_TEXT_EMBEDDINGS_FUSED_PATH_TEMPLATE, DEVICE, set_seeds)
 
 def load_embeddings():
@@ -23,7 +23,7 @@ def load_embeddings():
     
     # Load embeddings
     video_db = torch.load(AEMS_VID_EMBEDDINGS_PATH, weights_only=False)
-    audio_db = torch.load(AEMS_AUDIO_EMBEDDINGS_PATH, weights_only=False)
+    audio_db = torch.load(AEMS_CLAP_AUDIO_EMBEDDINGS_PATH, weights_only=False)
     text_db_test = torch.load(AEMS_TEXT_EMBEDDINGS_FUSED_PATH_TEMPLATE.format(split="test"), weights_only=False)
     
     # Get test video IDs

@@ -27,7 +27,7 @@ import torch
 import torch.nn.functional as F
 
 from src.config import (
-    AEMS_AUDIO_EMBEDDINGS_PATH,
+    AEMS_CLAP_AUDIO_EMBEDDINGS_PATH,
     AEMS_TEXT_EMBEDDINGS_DESC_PATH_TEMPLATE,
     AEMS_MANIFEST_PATH,
     set_seeds,
@@ -76,7 +76,7 @@ def main():
     train_ids = set(r["video_id"] for r in records)
 
     print("[LOAD] Loading embedding DBs...")
-    audio_db = torch.load(AEMS_AUDIO_EMBEDDINGS_PATH, weights_only=False)
+    audio_db = torch.load(AEMS_CLAP_AUDIO_EMBEDDINGS_PATH, weights_only=False)
     text_db = torch.load(AEMS_TEXT_EMBEDDINGS_DESC_PATH_TEMPLATE.format(split="train"),
                          weights_only=False)
 

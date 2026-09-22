@@ -2,15 +2,14 @@
 
 import argparse
 import torch
-from src.encoders.clap_encode import CLAPEncoder
 from src.explainability.explain_retrieval import (
     explain_modality_contributions,
     explain_gating_decision,
     format_explanation,
 )
 from src.routing.query_router import (
-    add_index_args, load_search_index, load_gate, load_clip,
-    encode_text_query, encode_clap_text_query, search,
+    add_index_args, load_search_index, load_fusion_gate, load_clip,
+    encode_text_query, search,
 )
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
@@ -33,17 +32,16 @@ def main():
     index = load_search_index(args.video_embeds, args.audio_embeds, args.caption_embeds)
     print(f"{len(index[0])} candidates")
 
-    print("[LOAD] Gating network...", end=" ", flush=True)
-    gate = load_gate(args.gate_weights, DEVICE)
-    print("done")
+    gate = load_fusion_gate(args, DEVICE)
+    print(f"[FUSION] {'gating network' if gate is not None else 'fixed weights'}")
 
-    print("[ENCODE] Query (CLIP + CLAP)...", end=" ", flush=True)
+    print("[ENCODE] Query (CLIP)...", end=" ", flush=True)
     clip_query = encode_text_query(load_clip(DEVICE), args.query, DEVICE)
-    clap_query = encode_clap_text_query(CLAPEncoder(device=DEVICE), args.query, DEVICE)
+    audio_query = clip_query  # the audio branch lives in CLIP text space
     print("done")
 
-    print("[SEARCH] Gating and scoring...", end=" ", flush=True)
-    w, sim_v, sim_t, sim_a = search(index, gate, clip_query=clip_query, clap_query=clap_query)
+    print("[SEARCH] Scoring and fusing...", end=" ", flush=True)
+    w, sim_v, sim_t, sim_a = search(index, clip_query=clip_query, audio_query=audio_query, gate=gate)
     print("done")
 
     print("[EXPLAIN] Generating explanations...")

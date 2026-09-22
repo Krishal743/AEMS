@@ -17,7 +17,7 @@ import torch
 import torch.nn.functional as F
 
 from experiments.audio_alignment.compare_utils import load_anchor_pairs, hubness_skew
-from src.config import AEMS_MANIFEST_PATH, AEMS_AUDIO_EMBEDDINGS_PATH, set_seeds
+from src.config import AEMS_MANIFEST_PATH, AEMS_CLAP_AUDIO_EMBEDDINGS_PATH, set_seeds
 from src.data.metadata import load_metadata, filter_by_split
 
 OUTPUT_DIR = "outputs/alignment"

@@ -16,7 +16,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'src'))
 from src.encoders.clap_encode import CLAPEncoder
 from src.models.gating_network import GatingNetwork
 from src.evaluation.evaluate_retrieval import evaluate_retrieval
-from src.config import (AEMS_MANIFEST_PATH, AEMS_VID_EMBEDDINGS_PATH, AEMS_AUDIO_EMBEDDINGS_PATH,
+from src.config import (AEMS_MANIFEST_PATH, AEMS_VID_EMBEDDINGS_PATH, AEMS_CLAP_AUDIO_EMBEDDINGS_PATH,
                          AEMS_TEXT_EMBEDDINGS_FUSED_PATH_TEMPLATE, AEMS_GATING_WEIGHTS_PATH,
                          DEVICE, set_seeds)
 from src.data.metadata import load_metadata, filter_by_split
@@ -55,7 +55,7 @@ def main():
     # Load embeddings first
     print("[EMB] Loading embeddings...")
     video_db = torch.load(AEMS_VID_EMBEDDINGS_PATH)
-    audio_db = torch.load(AEMS_AUDIO_EMBEDDINGS_PATH)
+    audio_db = torch.load(AEMS_CLAP_AUDIO_EMBEDDINGS_PATH)
     text_db_train = torch.load(AEMS_TEXT_EMBEDDINGS_FUSED_PATH_TEMPLATE.format(split="train"))
     text_db_test = torch.load(AEMS_TEXT_EMBEDDINGS_FUSED_PATH_TEMPLATE.format(split="test"))
     

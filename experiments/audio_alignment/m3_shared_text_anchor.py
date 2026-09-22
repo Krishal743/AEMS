@@ -27,7 +27,7 @@ import torch.nn.functional as F
 from experiments.audio_alignment.compare_utils import (
     load_anchor_pairs, procrustes_map, evaluate_method, save_db,
 )
-from src.config import AEMS_MANIFEST_PATH, AEMS_AUDIO_EMBEDDINGS_PATH, set_seeds
+from src.config import AEMS_MANIFEST_PATH, AEMS_CLAP_AUDIO_EMBEDDINGS_PATH, set_seeds
 from src.data.metadata import load_metadata, filter_by_split
 from src.encoders.clap_encode import CLAPEncoder
 
@@ -82,7 +82,7 @@ def main():
     print(f"  text-map R@1(clapText->audio)={eval_text['cliptext_to_audio']['R@1']:.4f}")
 
     # --- 3. Apply map to precomputed CLAP-audio embeddings ---
-    audio_db = torch.load(AEMS_AUDIO_EMBEDDINGS_PATH, map_location="cpu",
+    audio_db = torch.load(AEMS_CLAP_AUDIO_EMBEDDINGS_PATH, map_location="cpu",
                           weights_only=False)
     full_vids = sorted(audio_db.keys())
     X_full = F.normalize(torch.stack([audio_db[v].float() for v in full_vids]), dim=-1)

@@ -5,7 +5,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 os.chdir('/home/pesu-rf/team23')
 import torch.nn.functional as F
 from types import SimpleNamespace
-from src.config import (AEMS_MANIFEST_PATH, AEMS_VID_EMBEDDINGS_PATH, AEMS_AUDIO_EMBEDDINGS_PATH,
+from src.config import (AEMS_MANIFEST_PATH, AEMS_VID_EMBEDDINGS_PATH, AEMS_CLAP_AUDIO_EMBEDDINGS_PATH,
                          AEMS_TEXT_EMBEDDINGS_FUSED_PATH_TEMPLATE, DEVICE)
 from experiments.ablations.run_ablation import load_data, angular_similarity, train_and_eval
 from src.evaluation.evaluate_retrieval import evaluate_retrieval
@@ -34,7 +34,7 @@ def main():
     set_seeds(42)
     args = SimpleNamespace(
         seed=42, manifest=AEMS_MANIFEST_PATH, video_embeds=AEMS_VID_EMBEDDINGS_PATH,
-        audio_embeds=AEMS_AUDIO_EMBEDDINGS_PATH,
+        audio_embeds=AEMS_CLAP_AUDIO_EMBEDDINGS_PATH,
         text_embeds_train=AEMS_TEXT_EMBEDDINGS_FUSED_PATH_TEMPLATE.format(split="train"),
         text_embeds_test=AEMS_TEXT_EMBEDDINGS_FUSED_PATH_TEMPLATE.format(split="test"))
     data = load_data(args)

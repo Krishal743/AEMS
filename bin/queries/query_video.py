@@ -14,7 +14,7 @@ from src.explainability.explain_retrieval import (
     format_explanation,
 )
 from src.routing.query_router import (
-    add_index_args, load_search_index, load_gate, encode_video_query, search,
+    add_index_args, load_search_index, load_fusion_gate, encode_video_query, search,
 )
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
@@ -46,13 +46,13 @@ def main():
 
     index = load_search_index(args.video_embeds, args.audio_embeds, args.caption_embeds)
     print(f"Candidates: {len(index[0])} videos")
-    gate = load_gate(args.gate_weights, DEVICE)
+    gate = load_fusion_gate(args, DEVICE)
 
     clip_model, preprocess = clip.load("ViT-B/32", device=DEVICE)
     clip_model.eval()
     clip_query = encode_video_query(clip_model, load_video_frames(args.video, preprocess), DEVICE)
 
-    w, sim_v, sim_t, sim_a = search(index, gate, clip_query=clip_query)
+    w, sim_v, sim_t, sim_a = search(index, clip_query=clip_query, gate=gate)
     contributions = explain_modality_contributions(w, sim_v, sim_t, sim_a, index[0], top_k=args.top_k)
     print(format_explanation(contributions, explain_gating_decision(w), top_k=args.top_k))
 

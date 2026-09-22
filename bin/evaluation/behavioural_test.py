@@ -2,11 +2,10 @@
 
 import argparse, csv, os
 import torch
-from src.encoders.clap_encode import CLAPEncoder
 from src.explainability.explain_retrieval import explain_gating_decision
 from src.routing.query_router import (
     add_index_args, load_search_index, load_gate, load_clip,
-    encode_text_query, encode_clap_text_query, search,
+    encode_text_query, search,
 )
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
@@ -44,18 +43,16 @@ def main():
     os.makedirs(OUTPUT_DIR, exist_ok=True)
 
     index = load_search_index(args.video_embeds, args.audio_embeds, args.caption_embeds)
-    gate = load_gate(args.gate_weights, DEVICE)
+    gate = load_gate(args.gate_weights, DEVICE)  # always the gate: that's what is under test
     clip_model = load_clip(DEVICE)
-    clap_encoder = CLAPEncoder(device=DEVICE)
 
     rows = []
     for set_name, queries in QUERY_SETS.items():
         for query in queries:
-            w, sim_v, sim_t, sim_a = search(
-                index, gate,
-                clip_query=encode_text_query(clip_model, query, DEVICE),
-                clap_query=encode_clap_text_query(clap_encoder, query, DEVICE),
-            )
+            clip_query = encode_text_query(clip_model, query, DEVICE)
+            # sims are z-scored per branch; the audio branch is in CLIP text space
+            w, sim_v, sim_t, sim_a = search(index, clip_query=clip_query,
+                                            audio_query=clip_query, gate=gate)
 
             g = explain_gating_decision(w)
             rows.append({
