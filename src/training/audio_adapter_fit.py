@@ -74,3 +74,46 @@ def fit_adapter(features, targets, device, epochs=DEFAULT_EPOCHS, batch_size=DEF
 def project(model, features, device):
     """(n, d) features -> (n, 512) CLIP-space embeddings on CPU."""
     return model(features.to(device)).cpu()
+
+
+def out_of_fold_audio(feat_db, desc_db, query_emb, rows, fit_vids, device, folds=4,
+                      epochs=39, seed=42, cache_path=None, log=print):
+    """Project each fold of `fit_vids` with an adapter fitted on the other folds.
+
+    The deployed adapter is fitted on these videos, so its similarities for them
+    are optimistic; a downstream model trained on those scores learns to
+    over-trust audio. Cross-fitting removes that bias — see docs/PROTOCOL.md.
+
+    Cached to `cache_path` when given, since every downstream trainer needs the
+    same projections.
+    """
+    import os
+    import torch
+    import torch.nn.functional as F
+
+    if cache_path and os.path.exists(cache_path):
+        cached = torch.load(cache_path, weights_only=False)
+        if set(cached) >= set(fit_vids):
+            log(f"[AUDIO] out-of-fold projections loaded from {cache_path}")
+            return cached
+
+    def matrix(vids):
+        return F.normalize(torch.stack([torch.as_tensor(feat_db[v]).float() for v in vids]), dim=1)
+
+    oof = {}
+    chunks = [fit_vids[i::folds] for i in range(folds)]
+    for i, fold in enumerate(chunks):
+        other = [v for j, f in enumerate(chunks) if j != i for v in f]
+        targets = [torch.cat([F.normalize(torch.as_tensor(desc_db[v]).float().view(1, -1), dim=1),
+                              query_emb[rows[v]]]) for v in other]
+        adapter, _, _ = fit_adapter(matrix(other), targets, device, epochs=epochs, seed=seed)
+        projected = project(adapter, matrix(fold), device)
+        for j, v in enumerate(fold):
+            oof[v] = projected[j]
+        log(f"  fold {i + 1}/{folds}: fitted on {len(other)}, projected {len(fold)}")
+
+    if cache_path:
+        os.makedirs(os.path.dirname(cache_path), exist_ok=True)
+        torch.save(oof, cache_path)
+        log(f"[AUDIO] cached out-of-fold projections -> {cache_path}")
+    return oof

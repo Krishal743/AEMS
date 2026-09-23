@@ -28,10 +28,10 @@ from src.config import (AEMS_MANIFEST_PATH, AEMS_VID_EMBEDDINGS_PATH, AEMS_AUDIO
                         AEMS_TEXT_EMBEDDINGS_FUSED_PATH_TEMPLATE,
                         AEMS_TEXT_EMBEDDINGS_DESC_PATH_TEMPLATE,
                         AEMS_TEXT_CHUNKS_PATH_TEMPLATE,
-                        AEMS_FUSION_WEIGHTS, DEVICE, set_seeds)
+                        AEMS_FUSION_WEIGHTS, AEMS_AUDIO_OOF_PATH, DEVICE, set_seeds)
 from src.models.gating_network import GatingNetwork
 from src.routing.query_router import BRANCHES, ChunkIndex, zscore
-from src.training.audio_adapter_fit import fit_adapter, project
+from src.training.audio_adapter_fit import out_of_fold_audio
 from src.training.query_data import (load_records, questions, validation_split, encode_clip_text,
                                      flatten_questions, stack_embeddings, query_rows, recall_metrics)
 
@@ -86,18 +86,9 @@ if args.no_cross_fit:
           "These similarities are optimistic and the gate will over-trust audio.", flush=True)
 else:
     print(f"[AUDIO] Cross-fitting {args.folds} adapters for out-of-fold train audio...", flush=True)
-    oof = {}
-    folds = [fit_vids[i::args.folds] for i in range(args.folds)]
-    for i, fold in enumerate(folds):
-        other = [v for j, f in enumerate(folds) if j != i for v in f]
-        targets = [torch.cat([F.normalize(torch.as_tensor(desc_db[v]).float().view(1, -1), dim=1),
-                              q_emb[rows[v]]]) for v in other]
-        adapter, _, _ = fit_adapter(stack_embeddings(feat_db, other), targets, DEVICE,
-                                    epochs=args.adapter_epochs, seed=args.seed)
-        projected = project(adapter, stack_embeddings(feat_db, fold), DEVICE)
-        for j, v in enumerate(fold):
-            oof[v] = projected[j]
-        print(f"  fold {i + 1}/{args.folds}: fitted on {len(other)}, projected {len(fold)}", flush=True)
+    oof = out_of_fold_audio(feat_db, desc_db, q_emb, rows, fit_vids, DEVICE,
+                            folds=args.folds, epochs=args.adapter_epochs, seed=args.seed,
+                            cache_path=AEMS_AUDIO_OOF_PATH)
 
 
 def chunk_index(videos):

@@ -50,6 +50,9 @@ AEMS_VID_EMBEDDINGS_PATH = "embeddings/aems_video_embeddings_v1.pt"
 # space by a trained adapter, so the branch is scored with the CLIP query.
 AEMS_WAVLM_FEATURES_PATH = "embeddings/aems_audio_embeddings_wavlm_v1.pt"
 AEMS_AUDIO_EMBEDDINGS_PATH = "embeddings/aems_audio_embeddings_wavlm_clip_v1.pt"
+# Out-of-fold projections of the train videos, for training downstream models
+# without the deployed adapter's in-sample optimism (see docs/PROTOCOL.md).
+AEMS_AUDIO_OOF_PATH = "embeddings/aems_audio_oof_train_v1.pt"
 # Previous CLAP audio branch (CLAP space), still used by experiments/.
 AEMS_CLAP_AUDIO_EMBEDDINGS_PATH = "embeddings/aems_audio_embeddings_v1.pt"
 AEMS_TEXT_EMBEDDINGS_DESC_PATH_TEMPLATE = "embeddings/aems_text_embeddings_description_{split}.pt"
@@ -63,6 +66,7 @@ AEMS_TRANSFORMER_BEST_PATH = "models/aems_temporal_transformer_best_v1.pth"
 AEMS_TRANSFORMER_CHECKPOINT_DIR = "checkpoints/aems"
 AEMS_GATING_WEIGHTS_PATH = "models/aems_gating_weights_v1.pth"
 AEMS_AUDIO_ADAPTER_PATH = "models/aems_audio_adapter_wavlm_v1.pth"
+AEMS_PER_CANDIDATE_GATE_PATH = "models/aems_per_candidate_gate_v1.pth"
 
 # ===== Fusion =====
 # Each branch's similarities are z-scored per query over the gallery, then

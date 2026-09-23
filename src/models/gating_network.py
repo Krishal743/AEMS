@@ -217,21 +217,28 @@ class GatingNetworkPerCandidate(nn.Module):
         else:
             return {'audio': self.scale_audio, 'text': self.scale_text, 'visual': self.scale_visual}
 
-    def forward(self, query_emb, sim_v, sim_t, sim_a):
+    def forward(self, query_emb, *sims):
         """
         Args:
             query_emb: (batch, input_dim) query embedding
-            sim_v: (batch, n_candidates) visual similarities
-            sim_t: (batch, n_candidates) text similarities
-            sim_a: (batch, n_candidates) audio similarities
+            *sims: either one (batch, n_candidates, sim_dim) tensor of stacked
+                per-branch similarities, or sim_dim separate (batch,
+                n_candidates) tensors in branch order (the older 3-argument
+                call from experiments/ablations/run_ablation.py).
         Returns:
             weights: (batch, n_candidates, num_modalities) per-candidate weights
         """
-        batch, n = sim_v.shape
+        if len(sims) == 1 and sims[0].dim() == 3:
+            x_sim = sims[0]
+        else:
+            x_sim = torch.stack(sims, dim=-1)  # (batch, n, sim_dim)
+        if x_sim.shape[-1] != self.sim_ln.normalized_shape[0]:
+            raise ValueError(f"expected {self.sim_ln.normalized_shape[0]} branches, "
+                             f"got {x_sim.shape[-1]}")
+        n = x_sim.shape[1]
         x = query_emb.float() if query_emb.dtype == torch.float16 else query_emb
         q_feat = self.query_drop(F.gelu(self.query_ln(self.query_fc(x))))  # (batch, hidden)
 
-        x_sim = torch.stack([sim_v, sim_t, sim_a], dim=-1)  # (batch, n, 3)
         x_sim = self.sim_ln(x_sim)
         h = self.sim_drop1(F.gelu(self.sim_ln1(self.sim_fc1(x_sim))))
         h2 = self.sim_drop2(F.gelu(self.sim_ln2(self.sim_fc2(h))))  # (batch, n, hidden//2)
