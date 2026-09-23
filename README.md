@@ -150,10 +150,17 @@ stage 1's top 50 for 79% of queries but ranked first for 46%.
 | none (stage 1 only) | 0.462 | 0.665 | — | 0 |
 | `--rerank gate` (per-candidate gating) | 0.471 | 0.664 | +0.009 [+0.003, +0.015] | 0.1 |
 | `--rerank cross` (MiniLM cross-encoder) | **0.587** | **0.713** | **+0.125 [+0.114, +0.135]** | 12 |
+| BGE-reranker-v2-m3 (evaluated, not deployed) | 0.593 | 0.716 | +0.131 [+0.119, +0.141] | 87 |
 
 The cross-encoder reads the query and a transcript passage *together* rather
 than comparing two independently-made embeddings. It is off by default because
 it adds latency; both rerankers are opt-in.
+
+MiniLM is the deployed cross-encoder. BGE-reranker-v2-m3 (2.3 GB, 25x larger)
+scored *lower* on the validation split used for selection (0.6135 vs 0.6184)
+and 0.6 points higher on test, a difference well inside the overlapping
+confidence intervals — for 7x the latency. Reproduce with
+`bin/evaluation/eval_rerankers.py --models bge`.
 
 Results are saved to `outputs/aems/`.
 
