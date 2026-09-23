@@ -91,6 +91,13 @@ The query scripts (`bin/queries/`) and demo (`bin/demo/`) sit at the end of the 
 | **Verification** | `bin/verification/verify_gating.py` | Check gating weights vs keyword expectations |
 | | `bin/verification/diagnose_loss.py` | Debug loss/weight behavior during gating training |
 
+## Experimental protocol
+
+See `docs/PROTOCOL.md`: selection happens on the validation split carved from
+train, test is scored once, any model whose scores train a downstream model must
+be cross-fitted, and a difference is claimed only when a paired bootstrap CI
+excludes zero.
+
 ## Import conventions
 
 Always use the `src` package for reusable modules:
@@ -133,9 +140,9 @@ Pattern used in gating training:
 ## Gating network
 
 - Architecture: `src/models/gating_network.py`
-- MLP: `LayerNorm(512) → Linear(512→128) → GELU → LayerNorm → Dropout → Linear(128→64) → GELU → LayerNorm → Dropout → Linear(64→3) → Softmax`
+- MLP: `LayerNorm(512) → Linear(512→128) → GELU → LayerNorm → Dropout → Linear(128→64) → GELU → LayerNorm → Dropout → Linear(64→4) → Softmax` (one weight per branch in `BRANCHES`; `load_gate` rejects a checkpoint whose head size disagrees)
 - Optional modes: `constant_weights` (one global weight vector), `learnable_temp`, `learnable_scale`, `weight_reg`
-- `GatingNetworkPerCandidate` is a second class that also consumes per-candidate similarities; only reachable via `experiments/ablations/run_ablation.py --per-candidate`
+- `GatingNetworkPerCandidate` is a second class that also consumes per-candidate similarities, predicting weights per query-candidate pair; reachable via `experiments/ablations/run_ablation.py --method per_candidate`
 - Training: ranking loss with hard negatives (margin=0.2, 10 negatives/query)
 - Constants: `NUM_EPOCHS=15`, `LR=1e-3`, `NUM_TRAIN_QUERIES=300`
 - Saved to `models/aems_gating_weights_v1.pth`
