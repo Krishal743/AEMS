@@ -28,14 +28,15 @@ def main():
     add_index_args(parser)
     args = parser.parse_args()
 
-    index = load_search_index(args.video_embeds, args.audio_embeds, args.caption_embeds)
-    print(f"Candidates: {len(index[0])} videos")
+    index = load_search_index(args.video_embeds, args.audio_embeds, args.caption_embeds,
+                              args.chunk_embeds)
+    print(f"Candidates: {len(index.video_ids)} videos")
 
     audio_query = encode_audio_query(WavLMEncoder(device=DEVICE),
                                      load_adapter(args.adapter, DEVICE), args.audio, DEVICE)
 
-    w, sim_v, sim_t, sim_a = search(index, audio_query=audio_query)
-    contributions = explain_modality_contributions(w, sim_v, sim_t, sim_a, index[0], top_k=args.top_k)
+    w, *sims = search(index, audio_query=audio_query)
+    contributions = explain_modality_contributions(w, sims, index.video_ids, top_k=args.top_k)
     print(format_explanation(contributions, explain_gating_decision(w), top_k=args.top_k))
 
 

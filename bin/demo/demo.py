@@ -29,8 +29,9 @@ def main():
     print()
 
     print("[LOAD] Search index...", end=" ", flush=True)
-    index = load_search_index(args.video_embeds, args.audio_embeds, args.caption_embeds)
-    print(f"{len(index[0])} candidates")
+    index = load_search_index(args.video_embeds, args.audio_embeds, args.caption_embeds,
+                              args.chunk_embeds)
+    print(f"{len(index.video_ids)} candidates")
 
     gate = load_fusion_gate(args, DEVICE)
     print(f"[FUSION] {'gating network' if gate is not None else 'fixed weights'}")
@@ -41,11 +42,11 @@ def main():
     print("done")
 
     print("[SEARCH] Scoring and fusing...", end=" ", flush=True)
-    w, sim_v, sim_t, sim_a = search(index, clip_query=clip_query, audio_query=audio_query, gate=gate)
+    w, *sims = search(index, clip_query=clip_query, audio_query=audio_query, gate=gate)
     print("done")
 
     print("[EXPLAIN] Generating explanations...")
-    contributions = explain_modality_contributions(w, sim_v, sim_t, sim_a, index[0], top_k=args.top_k)
+    contributions = explain_modality_contributions(w, sims, index.video_ids, top_k=args.top_k)
     print()
     print(format_explanation(contributions, explain_gating_decision(w), top_k=args.top_k))
 

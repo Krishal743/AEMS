@@ -36,8 +36,9 @@ def main():
     if not args.text and not args.image:
         parser.error("provide at least one of --text or --image")
 
-    index = load_search_index(args.video_embeds, args.audio_embeds, args.caption_embeds)
-    print(f"Candidates: {len(index[0])} videos")
+    index = load_search_index(args.video_embeds, args.audio_embeds, args.caption_embeds,
+                              args.chunk_embeds)
+    print(f"Candidates: {len(index.video_ids)} videos")
     gate = load_fusion_gate(args, DEVICE)
 
     clip_model, preprocess = clip.load("ViT-B/32", device=DEVICE)
@@ -53,8 +54,8 @@ def main():
 
     audio_query = text_query
 
-    w, sim_v, sim_t, sim_a = search(index, clip_query=clip_query, audio_query=audio_query, gate=gate)
-    contributions = explain_modality_contributions(w, sim_v, sim_t, sim_a, index[0], top_k=args.top_k)
+    w, *sims = search(index, clip_query=clip_query, audio_query=audio_query, gate=gate)
+    contributions = explain_modality_contributions(w, sims, index.video_ids, top_k=args.top_k)
     print(format_explanation(contributions, explain_gating_decision(w), top_k=args.top_k))
 
 

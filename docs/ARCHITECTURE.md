@@ -4,7 +4,7 @@
 
 **Query-Conditioned Adaptive Fusion for Any-to-Any Video Retrieval** on AEMS.
 
-The system uses three precomputed embedding branches — CLIP visual, CLIP caption, and WavLM audio projected into CLIP text space by a trained adapter. All three therefore live in one space and are scored with the same CLIP query. Each branch's similarities are z-scored per query over the gallery, then combined either with fixed weights (`AEMS_FUSION_WEIGHTS`, the default) or with per-query weights from the gating network (`--fusion gate`).
+The system uses four precomputed embedding branches — CLIP visual, CLIP caption (the video's text mean-pooled into one vector), CLIP passages (the same text kept as separate chunks and scored by best match), and WavLM audio projected into CLIP text space by a trained adapter. All three therefore live in one space and are scored with the same CLIP query. Each branch's similarities are z-scored per query over the gallery, then combined either with fixed weights (`AEMS_FUSION_WEIGHTS`, the default) or with per-query weights from the gating network (`--fusion gate`).
 
 ```
                          ┌──────────────────┐
@@ -27,9 +27,12 @@ The system uses three precomputed embedding branches — CLIP visual, CLIP capti
              ┌──────────┐ ┌──────────┐          ┌──────────┐
              │ Weights  │ │ sim_v    │          │ sim_t    │
              │ fixed or │ │(visual)  │          │(caption) │
-             │ gate MLP │ │ CLIP     │          │ CLIP     │
+             │ gate MLP │ │ CLIP     │          │ CLIP mean│
              └────┬─────┘ └────┬─────┘          └────┬─────┘
                   │     ┌──────┴──────────┐          │
+                  │     │ sim_c (passage) │          │
+                  │     │ CLIP max-sim    │          │
+                  │     ├─────────────────┤          │
                   │     │ sim_a (audio)   │          │
                   │     │ WavLM+adapter   │          │
                   └─────┴───────┬─────────┴──────────┘
@@ -40,6 +43,7 @@ The system uses three precomputed embedding branches — CLIP visual, CLIP capti
                      │ branch per query,│
                      │ then w_v·sim_v + │
                      │ w_t·sim_t +      │
+                     │ w_c·sim_c +      │
                      │ w_a·sim_a        │
                      └────────┬─────────┘
                               │
@@ -70,6 +74,7 @@ The system uses three precomputed embedding branches — CLIP visual, CLIP capti
 - **TemporalTransformer** (`temporal_transformer.py`): 2-layer TransformerEncoder over 16 frame embeddings. CLS token + learned pos embed.
 
 ### Routing (`src/routing/`)
+- **ChunkIndex** (`query_router.py`): every video's passage embeddings stacked with an owner index; `max_sim` scores a query against each video's best-matching passage. CLIP takes 77 tokens while transcripts run to a median of 677 words, so the mean-pooled caption vector averages ~30 chunks together; keeping both views is worth ~5 R@1 points over either alone.
 - **Query Router** (`query_router.py`): per-query-type encoding (text/image/audio/video/mixed), per-branch similarities, z-scoring, and weighted fusion. Text queries score all three branches with one CLIP vector; audio-clip queries use WavLM + adapter and reach the audio branch only; image and video queries skip the audio branch, since image vectors are not aligned with the adapter's text space. Branches a query cannot reach get zero weight and the rest are renormalized.
 
 ### Explainability (`src/explainability/`)
@@ -83,7 +88,7 @@ The system uses three precomputed embedding branches — CLIP visual, CLIP capti
 1. Build the AEMS manifest from `aems/dataset/`
 2. Extract 16 uniform frames per video
 3. Extract audio (.wav)
-4. Precompute embeddings (CLIP for video/text, WavLM features for audio)
+4. Precompute embeddings (CLIP for video/text/passages, WavLM features for audio)
 5. Train the audio adapter (exports the CLIP-space audio branch) → optionally train the transformer and the gating network → canonical eval
 6. Query scripts (`bin/queries/`) for text/image/audio/video/mixed retrieval with explainability
 7. Demo script (`bin/demo/demo.py`) for interactive demonstration

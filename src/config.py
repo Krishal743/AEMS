@@ -55,6 +55,8 @@ AEMS_CLAP_AUDIO_EMBEDDINGS_PATH = "embeddings/aems_audio_embeddings_v1.pt"
 AEMS_TEXT_EMBEDDINGS_DESC_PATH_TEMPLATE = "embeddings/aems_text_embeddings_description_{split}.pt"
 AEMS_TEXT_EMBEDDINGS_TRANS_PATH_TEMPLATE = "embeddings/aems_text_embeddings_transcript_{split}.pt"
 AEMS_TEXT_EMBEDDINGS_FUSED_PATH_TEMPLATE = "embeddings/aems_text_embeddings_fused_{split}.pt"
+# Per-chunk text embeddings for the late-interaction (max-sim) branch.
+AEMS_TEXT_CHUNKS_PATH_TEMPLATE = "embeddings/aems_text_chunks_{split}.pt"
 
 # ===== AEMS model paths =====
 AEMS_TRANSFORMER_BEST_PATH = "models/aems_temporal_transformer_best_v1.pth"
@@ -67,7 +69,7 @@ AEMS_AUDIO_ADAPTER_PATH = "models/aems_audio_adapter_wavlm_v1.pth"
 # combined with these weights when --fusion fixed is used. Tuned by grid search
 # on the validation split carved from train (never on test); re-tune whenever a
 # branch changes.
-AEMS_FUSION_WEIGHTS = {"visual": 0.3, "text": 1.0, "audio": 0.2}
+AEMS_FUSION_WEIGHTS = {"visual": 0.3, "text": 1.0, "chunk": 1.0, "audio": 0.3}
 AEMS_VIDEO_EMBEDDINGS_TRANSFORMER_PATH = "embeddings/aems_video_embeddings_transformer_v1.pt"
 
 

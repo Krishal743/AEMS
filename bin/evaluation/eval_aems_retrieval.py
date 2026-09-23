@@ -1,13 +1,14 @@
 import sys, json, torch, argparse, os, gc, time, random
 import clip
 import numpy as np
-from src.routing.query_router import load_gate, zscore, fixed_weights
+from src.routing.query_router import load_gate, zscore, fixed_weights, ChunkIndex
 from src.evaluation.evaluate_retrieval import evaluate_retrieval
 from src.config import (AEMS_MANIFEST_PATH, AEMS_VID_EMBEDDINGS_PATH, AEMS_AUDIO_EMBEDDINGS_PATH,
                          AEMS_VIDEO_EMBEDDINGS_TRANSFORMER_PATH, AEMS_GATING_WEIGHTS_PATH,
                          AEMS_TEXT_EMBEDDINGS_DESC_PATH_TEMPLATE,
                          AEMS_TEXT_EMBEDDINGS_TRANS_PATH_TEMPLATE,
                          AEMS_TEXT_EMBEDDINGS_FUSED_PATH_TEMPLATE,
+                         AEMS_TEXT_CHUNKS_PATH_TEMPLATE,
                          DEVICE, set_seeds)
 from src.data.metadata import load_metadata, filter_by_split
 
@@ -69,6 +70,7 @@ else:
     visual_ckpt_id = "aems_video_embeddings_transformer_v1.pt"
 
 audio_db = torch.load(AEMS_AUDIO_EMBEDDINGS_PATH, weights_only=False)
+chunk_db = torch.load(AEMS_TEXT_CHUNKS_PATH_TEMPLATE.format(split="test"), weights_only=False)
 text_db = torch.load(TEXT_PATHS[args.text_variant].format(split="test"), weights_only=False)
 
 print(f"[EMB] Visual DB: {len(video_db)} videos")
@@ -77,7 +79,7 @@ print(f"[EMB] Text DB:   {len(text_db)} videos")
 
 test_video_ids = set(rec["video_id"] for rec in records)
 common_vids = sorted(
-    set(video_db.keys()) & set(audio_db.keys()) & set(text_db.keys()) & test_video_ids
+    set(video_db.keys()) & set(audio_db.keys()) & set(text_db.keys()) & set(chunk_db.keys()) & test_video_ids
 )
 print(f"[DATA] Common test videos: {len(common_vids)}")
 
@@ -145,6 +147,17 @@ sim_v = query_clip.float() @ video_matrix.T
 sim_t = query_clip.float() @ text_matrix.T
 sim_a = query_clip.float() @ audio_matrix.T  # audio branch is adapter-projected into CLIP text space
 
+chunk_rows, chunk_owner = [], []
+for i, v in enumerate(common_vids):
+    e = torch.nn.functional.normalize(torch.as_tensor(chunk_db[v]).float().reshape(-1, 512), dim=1)
+    chunk_rows.append(e)
+    chunk_owner += [i] * e.shape[0]
+chunk_index = ChunkIndex(torch.cat(chunk_rows).to(DEVICE), torch.tensor(chunk_owner, device=DEVICE),
+                         len(common_vids))
+sim_c = chunk_index.max_sim_batch(query_clip.float().to(DEVICE)).cpu()
+del chunk_rows, chunk_index, chunk_db
+gc.collect()
+
 print(f"[SIM] sim_v: {sim_v.shape}, sim_t: {sim_t.shape}, sim_a: {sim_a.shape}")
 
 print("[GATE] Loading gating network...")
@@ -166,18 +179,21 @@ if gate is not None:
         # same fusion as the router: gate weights over per-query z-scored branches
         gated = (w[:, 0:1] * zscore(sim_v[i:i+BATCH_SIZE]) +
                  w[:, 1:2] * zscore(sim_t[i:i+BATCH_SIZE]) +
-                 w[:, 2:3] * zscore(sim_a[i:i+BATCH_SIZE]))
+                 w[:, 2:3] * zscore(sim_c[i:i+BATCH_SIZE]) +
+                 w[:, 3:4] * zscore(sim_a[i:i+BATCH_SIZE]))
         sim_gated_list.append(gated)
     sim_gated = torch.cat(sim_gated_list, dim=0)
 
 systems = {
     "visual_only": sim_v,
     "text_only": sim_t,
+    "passage_only": sim_c,
     "audio_only": sim_a,
-    "equal_fusion": (sim_v + sim_t + sim_a) / 3,
+    "equal_fusion": (sim_v + sim_t + sim_c + sim_a) / 4,
 }
 fw = fixed_weights()
-systems["fixed_fusion"] = fw[0] * zscore(sim_v) + fw[1] * zscore(sim_t) + fw[2] * zscore(sim_a)
+systems["fixed_fusion"] = (fw[0] * zscore(sim_v) + fw[1] * zscore(sim_t)
+                           + fw[2] * zscore(sim_c) + fw[3] * zscore(sim_a))
 if sim_gated is not None:
     systems["adaptive_gating"] = sim_gated
 
@@ -220,6 +236,7 @@ results = {
         "visual": visual_ckpt_id,
         "audio": os.path.basename(AEMS_AUDIO_EMBEDDINGS_PATH),
         "text": f"aems_text_embeddings_{args.text_variant}_test.pt",
+        "chunks": os.path.basename(AEMS_TEXT_CHUNKS_PATH_TEMPLATE.format(split="test")),
         "gating_weights": os.path.basename(args.gate_weights) if gate_available else None,
     },
     "systems": {},
@@ -246,8 +263,10 @@ for name, sim in systems.items():
         sys_entry["w_v_std"] = float(w_all[:, 0].std())
         sys_entry["w_t_mean"] = float(w_all[:, 1].mean())
         sys_entry["w_t_std"] = float(w_all[:, 1].std())
-        sys_entry["w_a_mean"] = float(w_all[:, 2].mean())
-        sys_entry["w_a_std"] = float(w_all[:, 2].std())
+        sys_entry["w_c_mean"] = float(w_all[:, 2].mean())
+        sys_entry["w_c_std"] = float(w_all[:, 2].std())
+        sys_entry["w_a_mean"] = float(w_all[:, 3].mean())
+        sys_entry["w_a_std"] = float(w_all[:, 3].std())
 
     results["systems"][name] = sys_entry
 
@@ -264,7 +283,8 @@ if gate_available and gate is not None:
     print(f"\n  Gate weights (all queries):")
     print(f"    w_v: {w_all[:, 0].mean():.4f} ± {w_all[:, 0].std():.4f}")
     print(f"    w_t: {w_all[:, 1].mean():.4f} ± {w_all[:, 1].std():.4f}")
-    print(f"    w_a: {w_all[:, 2].mean():.4f} ± {w_all[:, 2].std():.4f}")
+    print(f"    w_c: {w_all[:, 2].mean():.4f} ± {w_all[:, 2].std():.4f}")
+    print(f"    w_a: {w_all[:, 3].mean():.4f} ± {w_all[:, 3].std():.4f}")
 
 print("\n" + "-" * 70)
 print("CATEGORY-STRATIFIED R@1")
@@ -358,12 +378,14 @@ print(f"Summary table: {summary_path}")
 
 if gate_available and gate is not None:
     weight_summary = {
+        "w_c_mean": float(w_all[:, 2].mean()),
+        "w_c_std": float(w_all[:, 2].std()),
         "w_v_mean": float(w_all[:, 0].mean()),
         "w_v_std": float(w_all[:, 0].std()),
         "w_t_mean": float(w_all[:, 1].mean()),
         "w_t_std": float(w_all[:, 1].std()),
-        "w_a_mean": float(w_all[:, 2].mean()),
-        "w_a_std": float(w_all[:, 2].std()),
+        "w_a_mean": float(w_all[:, 3].mean()),
+        "w_a_std": float(w_all[:, 3].std()),
     }
     weight_path = os.path.join(OUTPUT_DIR, "gating_weights_summary.json")
     with open(weight_path, "w") as f:

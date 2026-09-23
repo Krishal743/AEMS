@@ -82,6 +82,7 @@ The query scripts (`bin/queries/`) and demo (`bin/demo/`) sit at the end of the 
 | | `bin/embeddings/precompute_audio_embeddings.py` | WavLM-Large → `aems_audio_embeddings_wavlm_v1.pt` (1024-d) |
 | | `bin/training/train_audio_adapter.py` | WavLM → CLIP adapter → `aems_audio_embeddings_wavlm_clip_v1.pt` (audio branch) |
 | | `bin/embeddings/precompute_text_embeddings.py` | CLIP text encode; `--fusion description\|transcript\|fused` |
+| | `bin/embeddings/precompute_text_chunks.py` | Per-passage CLIP text encode → `aems_text_chunks_{split}.pt` |
 | **Models** | `bin/training/train_gating_network.py` | **Main gating network** (train + eval, ranking loss) |
 | | `bin/training/train_temporal_transformer.py` | 2-layer transformer over 16 frames, InfoNCE loss |
 | | `bin/training/export_transformer_embeddings.py` | Export transformer embeddings to `.pt` |
@@ -112,6 +113,7 @@ from src.routing.query_router import load_search_index, load_gate, search, zscor
 Dicts keyed by `video_id`, saved via `torch.save()` and loaded with `torch.load(..., weights_only=False)`:
 - `embeddings/video_embeddings.pt` — CLIP visual, 512-dim per video (10K videos, mean-pooled)
 - `embeddings/video_embeddings_transformer.pt` — Temporal Transformer output (9,087 videos)
+- `embeddings/aems_text_chunks_{train,test}.pt` — per-passage CLIP text embeddings, `(n_chunks, 512)` per video (late-interaction branch)
 - `embeddings/aems_audio_embeddings_wavlm_v1.pt` — raw WavLM-Large audio features, 1024-dim (adapter input, not searchable)
 - `embeddings/aems_audio_embeddings_wavlm_clip_v1.pt` — **the audio branch**: WavLM projected into CLIP text space, 512-dim
 - `embeddings/aems_audio_embeddings_v1.pt` — legacy CLAP audio, 512-dim (CLAP space; `experiments/` only, via `AEMS_CLAP_AUDIO_EMBEDDINGS_PATH`)

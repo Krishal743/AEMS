@@ -1,7 +1,7 @@
 """Train the query-conditioned gating network on z-scored branch similarities.
 
-The gate predicts per-query fusion weights (visual, text, audio) that are
-applied to branch similarities z-scored over the gallery — the same fusion
+The gate predicts per-query fusion weights (visual, text, passage, audio) that
+are applied to branch similarities z-scored over the gallery — the same fusion
 src/routing/query_router.py uses at search time.
 
 Two things keep this honest:
@@ -27,9 +27,10 @@ from src.config import (AEMS_MANIFEST_PATH, AEMS_VID_EMBEDDINGS_PATH, AEMS_AUDIO
                         AEMS_WAVLM_FEATURES_PATH, AEMS_GATING_WEIGHTS_PATH,
                         AEMS_TEXT_EMBEDDINGS_FUSED_PATH_TEMPLATE,
                         AEMS_TEXT_EMBEDDINGS_DESC_PATH_TEMPLATE,
+                        AEMS_TEXT_CHUNKS_PATH_TEMPLATE,
                         AEMS_FUSION_WEIGHTS, DEVICE, set_seeds)
 from src.models.gating_network import GatingNetwork
-from src.routing.query_router import zscore
+from src.routing.query_router import BRANCHES, ChunkIndex, zscore
 from src.training.audio_adapter_fit import fit_adapter, project
 from src.training.query_data import (load_records, questions, validation_split, encode_clip_text,
                                      flatten_questions, stack_embeddings, query_rows, recall_metrics)
@@ -40,6 +41,7 @@ parser.add_argument("--video-embeds", default=AEMS_VID_EMBEDDINGS_PATH)
 parser.add_argument("--audio-embeds", default=AEMS_AUDIO_EMBEDDINGS_PATH)
 parser.add_argument("--audio-features", default=AEMS_WAVLM_FEATURES_PATH)
 parser.add_argument("--text-embeds-train", default=AEMS_TEXT_EMBEDDINGS_FUSED_PATH_TEMPLATE.format(split="train"))
+parser.add_argument("--chunk-embeds-train", default=AEMS_TEXT_CHUNKS_PATH_TEMPLATE.format(split="train"))
 parser.add_argument("--output", default=AEMS_GATING_WEIGHTS_PATH)
 parser.add_argument("--epochs", type=int, default=30)
 parser.add_argument("--batch-size", type=int, default=256)
@@ -58,11 +60,13 @@ records = load_records(args.manifest, "train")
 vid_db = torch.load(args.video_embeds, weights_only=False)
 aud_db = torch.load(args.audio_embeds, weights_only=False)
 txt_db = torch.load(args.text_embeds_train, weights_only=False)
+chunk_db = torch.load(args.chunk_embeds_train, weights_only=False)
 feat_db = torch.load(args.audio_features, weights_only=False)
 desc_db = torch.load(AEMS_TEXT_EMBEDDINGS_DESC_PATH_TEMPLATE.format(split="train"), weights_only=False)
 
 usable = [v for v in records
           if v in vid_db and v in aud_db and v in txt_db and v in feat_db and v in desc_db
+          and v in chunk_db
           and questions(records[v])]
 fit_vids, val_vids = validation_split(usable, args.val_frac)
 print(f"[DATA] fit={len(fit_vids)} val={len(val_vids)} (test split untouched)", flush=True)
@@ -86,45 +90,60 @@ for i, fold in enumerate(folds):
     print(f"  fold {i + 1}/{args.folds}: fitted on {len(other)}, projected {len(fold)}", flush=True)
 
 
+def chunk_index(videos):
+    chunk_rows, owner = [], []
+    for i, v in enumerate(videos):
+        e = F.normalize(torch.as_tensor(chunk_db[v]).float().reshape(-1, 512), dim=1)
+        chunk_rows.append(e)
+        owner += [i] * e.shape[0]
+    return ChunkIndex(torch.cat(chunk_rows).to(DEVICE), torch.tensor(owner, device=DEVICE), len(videos))
+
+
 def branches(videos, audio_source):
     idx, gt = query_rows(rows, videos, DEVICE)
     q = q_emb[idx].to(DEVICE)
-    sims = [zscore(q @ stack_embeddings(db, videos, DEVICE).T)
-            for db in (vid_db, txt_db, audio_source)]
+    index = chunk_index(videos)
+    sim_chunk = index.max_sim_batch(q)
+    sims = [zscore(q @ stack_embeddings(vid_db, videos, DEVICE).T),
+            zscore(q @ stack_embeddings(txt_db, videos, DEVICE).T),
+            zscore(sim_chunk),
+            zscore(q @ stack_embeddings(audio_source, videos, DEVICE).T)]
     return {"q": q, "gt": gt, "sims": sims}
 
 
 fit = branches(fit_vids, oof)       # out-of-fold audio: honest for training
 val = branches(val_vids, aud_db)    # deployed adapter never fitted on val
 print(f"[DATA] fit queries={fit['q'].shape[0]} val queries={val['q'].shape[0]}", flush=True)
-print(f"[AUDIO] audio-only R@1: fit(out-of-fold)={recall_metrics(fit['sims'][2], fit['gt'])['R@1']:.4f} "
-      f"val={recall_metrics(val['sims'][2], val['gt'])['R@1']:.4f}", flush=True)
+print(f"[TEXT ] passage-branch R@1: val={recall_metrics(val['sims'][2], val['gt'])['R@1']:.4f}", flush=True)
+print(f"[AUDIO] audio-only R@1: fit(out-of-fold)={recall_metrics(fit['sims'][3], fit['gt'])['R@1']:.4f} "
+      f"val={recall_metrics(val['sims'][3], val['gt'])['R@1']:.4f}", flush=True)
 
 
 def fuse(w, sims):
-    return w[:, 0:1] * sims[0] + w[:, 1:2] * sims[1] + w[:, 2:3] * sims[2]
+    return sum(w[:, i:i + 1] * sims[i] for i in range(len(sims)))
 
 
 def fixed_baseline():
     """Best fixed weights on validation, as the bar the gate has to clear."""
-    grid = [round(x, 2) for x in np.arange(0, 1.01, 0.05)]
+    grid = [round(x, 2) for x in np.arange(0, 1.01, 0.1)]
     best, best_w = -1.0, None
     for wv in grid:
-        for wa in grid:
-            w = torch.tensor([[wv, 1.0, wa]], device=DEVICE)
-            r1 = recall_metrics(fuse(w, val["sims"]), val["gt"])["R@1"]
-            if r1 > best:
-                best, best_w = r1, (wv, 1.0, wa)
+        for wt in grid:
+            for wa in grid:
+                w = torch.tensor([[wv, wt, 1.0, wa]], device=DEVICE)
+                r1 = recall_metrics(fuse(w, val["sims"]), val["gt"])["R@1"]
+                if r1 > best:
+                    best, best_w = r1, (wv, wt, 1.0, wa)
     return best, best_w
 
 
 fixed_r1, fixed_w = fixed_baseline()
-config_w = torch.tensor([[AEMS_FUSION_WEIGHTS["visual"], AEMS_FUSION_WEIGHTS["text"],
-                          AEMS_FUSION_WEIGHTS["audio"]]], device=DEVICE)
+config_w = torch.tensor([[AEMS_FUSION_WEIGHTS[b] for b in BRANCHES]], device=DEVICE)
 config_r1 = recall_metrics(fuse(config_w, val["sims"]), val["gt"])["R@1"]
 print(f"[BASELINE] val R@1: config weights={config_r1:.4f}  best fixed {fixed_w}={fixed_r1:.4f}", flush=True)
 
-gate = GatingNetwork(input_dim=512, hidden_dim=args.hidden_dim).to(DEVICE)
+gate = GatingNetwork(input_dim=512, hidden_dim=args.hidden_dim,
+                     num_modalities=len(BRANCHES)).to(DEVICE)
 opt = torch.optim.AdamW(gate.parameters(), lr=args.lr, weight_decay=1e-4)
 sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, args.epochs)
 rng = np.random.default_rng(args.seed)
@@ -165,7 +184,7 @@ with torch.no_grad():
 mean_w, std_w = w_val.mean(0).tolist(), w_val.std(0).tolist()
 
 print(f"\n[BEST] epoch {best_epoch}  val {metrics}")
-print(f"[WEIGHTS] mean v/t/a = {[round(x, 3) for x in mean_w]}  "
+print(f"[WEIGHTS] mean {'/'.join(BRANCHES)} = {[round(x, 3) for x in mean_w]}  "
       f"std = {[round(x, 3) for x in std_w]}")
 if max(mean_w) > 0.95 or max(std_w) < 0.01:
     print("[WARN] the gate is nearly constant — it has collapsed onto one modality "

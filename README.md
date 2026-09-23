@@ -125,18 +125,19 @@ AEMS test split — 5,097 QA queries over 1,022 videos, `bin/evaluation/eval_aem
 | System | R@1 | R@5 | R@10 |
 |---|---|---|---|
 | Visual only | 0.194 | 0.342 | 0.408 |
-| Text only | 0.389 | 0.509 | 0.554 |
+| Text only (mean-pooled) | 0.389 | 0.509 | 0.554 |
+| Passage only (max-sim over chunks) | 0.365 | 0.500 | 0.545 |
 | Audio only (WavLM + adapter) | 0.053 | 0.152 | 0.211 |
-| Equal fusion | 0.317 | 0.491 | 0.569 |
-| Fixed-weight fusion | 0.411 | 0.558 | 0.608 |
-| **Adaptive gating** | **0.415** | **0.571** | **0.623** |
+| Equal fusion | 0.405 | 0.575 | 0.630 |
+| Fixed-weight fusion | 0.459 | 0.606 | 0.657 |
+| **Adaptive gating** | **0.463** | **0.619** | **0.665** |
 
-The gate's weights vary per query (visual 0.235 ± 0.104, text 0.625 ± 0.137,
-audio 0.140 ± 0.056), so all three branches contribute rather than the gate
-collapsing onto text as the previous version did.
+Gate weights vary per query — visual 0.185 ± 0.091, text 0.405 ± 0.101,
+passage 0.265 ± 0.105, audio 0.146 ± 0.062 — so all four branches contribute
+rather than the gate collapsing onto text as an earlier version did.
 
-Reference points: audio-only was 0.004 R@1 with CLAP; the earlier gate scored
-0.389, i.e. identical to text-only search.
+Starting point before this work: R@1 0.389, R@10 0.554 (the gate had collapsed
+to text-only search) and audio-only 0.004 with CLAP.
 
 Results are saved to `outputs/aems/`.
 

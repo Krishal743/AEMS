@@ -1,54 +1,49 @@
+"""Explain a fused ranking: which branch earned each result, and what decided rank 1.
+
+Branch similarities are z-scores, so a contribution can be negative (the branch
+argues *against* that video). Shares are therefore reported over absolute
+contributions, and the sign is kept in the raw score.
+"""
+
 import torch
 
+from src.routing.query_router import BRANCHES
 
-def explain_modality_contributions(weights, sim_v, sim_t, sim_a, video_ids, top_k=5):
-    w_v, w_t, w_a = weights
-    contrib_v = w_v * sim_v
-    contrib_t = w_t * sim_t
-    contrib_a = w_a * sim_a
-    fused = contrib_v + contrib_t + contrib_a
+LABELS = {"visual": "visual", "text": "caption", "chunk": "passage", "audio": "audio"}
 
-    ranked = torch.argsort(fused, descending=True)
+
+def explain_modality_contributions(weights, sims, video_ids, top_k=5):
+    """sims: per-branch similarity vectors, in BRANCHES order."""
+    contributions = [float(w) * s for w, s in zip(weights, sims)]
+    fused = sum(contributions)
+
     explanations = []
-    for rank_idx in ranked[:top_k].tolist():
-        vid = video_ids[rank_idx]
-        cv = contrib_v[rank_idx].item()
-        ct = contrib_t[rank_idx].item()
-        ca = contrib_a[rank_idx].item()
-        total = fused[rank_idx].item()
-        explanations.append({
-            "video_id": vid,
-            "fused_score": total,
-            "visual_score": cv,
-            "visual_pct": 100.0 * cv / total if total > 0 else 0.0,
-            "caption_score": ct,
-            "caption_pct": 100.0 * ct / total if total > 0 else 0.0,
-            "audio_score": ca,
-            "audio_pct": 100.0 * ca / total if total > 0 else 0.0,
-        })
+    for rank_idx in torch.argsort(fused, descending=True)[:top_k].tolist():
+        values = {b: contributions[i][rank_idx].item() for i, b in enumerate(BRANCHES)}
+        magnitude = sum(abs(v) for v in values.values()) or 1.0
+        entry = {"video_id": video_ids[rank_idx], "fused_score": fused[rank_idx].item()}
+        for branch, value in values.items():
+            entry[f"{branch}_score"] = value
+            entry[f"{branch}_pct"] = 100.0 * abs(value) / magnitude
+        explanations.append(entry)
     return explanations
 
 
 def explain_gating_decision(weights):
-    w = weights.squeeze().tolist()
-    labels = ["visual", "caption", "audio"]
-    dominant_idx = max(range(3), key=lambda i: w[i])
-    spread = max(w) - min(w)
-    return {
-        "w_v": w[0],
-        "w_t": w[1],
-        "w_a": w[2],
-        "dominant_modality": labels[dominant_idx],
-        "dominant_weight": w[dominant_idx],
-        "confidence_spread": spread,
-    }
+    w = [float(x) for x in torch.as_tensor(weights).squeeze().tolist()]
+    dominant = max(range(len(BRANCHES)), key=lambda i: w[i])
+    decision = {f"w_{b}": w[i] for i, b in enumerate(BRANCHES)}
+    decision.update({
+        "weights": w,
+        "dominant_modality": BRANCHES[dominant],
+        "dominant_weight": w[dominant],
+        "confidence_spread": max(w) - min(w),
+    })
+    return decision
 
 
 def explain_ranking_difference(rank1, rank2):
-    diffs = {}
-    for key in ["visual_score", "caption_score", "audio_score"]:
-        d = rank1[key] - rank2[key]
-        diffs[key.replace("_score", "")] = d
+    diffs = {b: rank1[f"{b}_score"] - rank2[f"{b}_score"] for b in BRANCHES}
     deciding = max(diffs, key=lambda k: abs(diffs[k]))
     return {
         "fused_delta": rank1["fused_score"] - rank2["fused_score"],
@@ -58,17 +53,18 @@ def explain_ranking_difference(rank1, rank2):
 
 
 def format_explanation(contributions, gating, top_k=5):
-    lines = []
-    lines.append(f"Gating weights: [visual={gating['w_v']:.4f}, caption={gating['w_t']:.4f}, audio={gating['w_a']:.4f}]")
-    lines.append(f"Dominant modality: {gating['dominant_modality']} ({gating['dominant_weight']:.2f}, spread={gating['confidence_spread']:.2f})")
-    lines.append("")
-    lines.append(f"Top-{top_k} results:")
+    weights = ", ".join(f"{LABELS[b]}={gating[f'w_{b}']:.4f}" for b in BRANCHES)
+    lines = [f"Gating weights: [{weights}]",
+             f"Dominant modality: {LABELS[gating['dominant_modality']]} "
+             f"({gating['dominant_weight']:.2f}, spread={gating['confidence_spread']:.2f})",
+             "", f"Top-{top_k} results:"]
     for i, c in enumerate(contributions):
-        lines.append(f"  {i+1}. {c['video_id']}  score={c['fused_score']:.4f}")
-        lines.append(f"       visual={c['visual_score']:.4f} ({c['visual_pct']:.1f}%)")
-        lines.append(f"       caption={c['caption_score']:.4f} ({c['caption_pct']:.1f}%)")
-        lines.append(f"       audio={c['audio_score']:.4f} ({c['audio_pct']:.1f}%)")
+        lines.append(f"  {i + 1}. {c['video_id']}  score={c['fused_score']:.4f}")
+        for b in BRANCHES:
+            lines.append(f"       {LABELS[b]:<8}={c[f'{b}_score']:+.4f} ({c[f'{b}_pct']:.1f}%)")
     if len(contributions) >= 2:
         rd = explain_ranking_difference(contributions[0], contributions[1])
-        lines.append(f"  Rank1 vs Rank2: deciding modality = {rd['deciding_modality']} (Δ={rd['per_modality_delta'][rd['deciding_modality']]:.4f})")
+        delta = rd["per_modality_delta"][rd["deciding_modality"]]
+        lines.append(f"  Rank1 vs Rank2: deciding modality = "
+                     f"{LABELS[rd['deciding_modality']]} (Δ={delta:+.4f})")
     return "\n".join(lines)

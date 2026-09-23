@@ -42,6 +42,8 @@ STAGES = {
          ["--split", "train", "--fusion", "fused"]),
         ("text_embeddings_fused_test", "bin/embeddings/precompute_text_embeddings.py",
          ["--split", "test", "--fusion", "fused"]),
+        ("text_chunks_train", "bin/embeddings/precompute_text_chunks.py", ["--split", "train"]),
+        ("text_chunks_test", "bin/embeddings/precompute_text_chunks.py", ["--split", "test"]),
     ],
     "train_audio_adapter": [
         ("train_audio_adapter", "bin/training/train_audio_adapter.py", []),
@@ -72,10 +74,12 @@ REQUIRED_INPUTS = {
     "export_transformer": ["models/aems_temporal_transformer_best_v1.pth"],
     "train_gating": ["embeddings/aems_video_embeddings_v1.pt",
                      "embeddings/aems_audio_embeddings_wavlm_clip_v1.pt",
+                     "embeddings/aems_text_chunks_train.pt",
                      "embeddings/aems_text_embeddings_fused_train.pt",
                      "embeddings/aems_text_embeddings_fused_test.pt"],
     "eval": ["embeddings/aems_video_embeddings_v1.pt",
              "embeddings/aems_audio_embeddings_wavlm_clip_v1.pt",
+             "embeddings/aems_text_chunks_test.pt",
              "embeddings/aems_text_embeddings_fused_test.pt"],
 }
 

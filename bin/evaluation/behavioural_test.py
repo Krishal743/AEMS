@@ -42,7 +42,8 @@ def main():
 
     os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-    index = load_search_index(args.video_embeds, args.audio_embeds, args.caption_embeds)
+    index = load_search_index(args.video_embeds, args.audio_embeds, args.caption_embeds,
+                              args.chunk_embeds)
     gate = load_gate(args.gate_weights, DEVICE)  # always the gate: that's what is under test
     clip_model = load_clip(DEVICE)
 
@@ -51,25 +52,29 @@ def main():
         for query in queries:
             clip_query = encode_text_query(clip_model, query, DEVICE)
             # sims are z-scored per branch; the audio branch is in CLIP text space
-            w, sim_v, sim_t, sim_a = search(index, clip_query=clip_query,
-                                            audio_query=clip_query, gate=gate)
+            w, sim_v, sim_t, sim_c, sim_a = search(index, clip_query=clip_query,
+                                                   audio_query=clip_query, gate=gate)
 
             g = explain_gating_decision(w)
             rows.append({
                 "query_set": set_name,
                 "query": query,
-                "w_v": g["w_v"],
-                "w_t": g["w_t"],
-                "w_a": g["w_a"],
+                "w_v": g["w_visual"],
+                "w_t": g["w_text"],
+                "w_c": g["w_chunk"],
+                "w_a": g["w_audio"],
                 "dominant": g["dominant_modality"],
                 "spread": g["confidence_spread"],
                 "max_sim_v": sim_v.max().item(),
                 "max_sim_t": sim_t.max().item(),
+                "max_sim_c": sim_c.max().item(),
                 "max_sim_a": sim_a.max().item(),
-                "fused_top1": (w[0] * sim_v + w[1] * sim_t + w[2] * sim_a).max().item(),
+                "fused_top1": (w[0] * sim_v + w[1] * sim_t + w[2] * sim_c
+                               + w[3] * sim_a).max().item(),
             })
             print(f"  [{set_name:>10}] {query[:50]:<50}  "
-                  f"w_v={g['w_v']:.3f} w_t={g['w_t']:.3f} w_a={g['w_a']:.3f}  "
+                  f"w_v={g['w_visual']:.3f} w_t={g['w_text']:.3f} "
+                  f"w_c={g['w_chunk']:.3f} w_a={g['w_audio']:.3f}  "
                   f"dominant={g['dominant_modality']}")
 
     csv_path = os.path.join(OUTPUT_DIR, "routing_table.csv")
