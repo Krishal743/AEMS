@@ -75,6 +75,11 @@ The system uses four precomputed embedding branches — CLIP visual, CLIP captio
 
 ### Routing (`src/routing/`)
 - **ChunkIndex** (`query_router.py`): every video's passage embeddings stacked with an owner index; `max_sim` scores a query against each video's best-matching passage. CLIP takes 77 tokens while transcripts run to a median of 677 words, so the mean-pooled caption vector averages ~30 chunks together; keeping both views is worth ~5 R@1 points over either alone.
+- **Reranking** (`src/rerank/`): optional stage 2 over stage 1's shortlist.
+  `stage1.py` builds candidate lists and folds stage-2 scores back into a full
+  ranking; `per_candidate.py` predicts fusion weights per query-candidate pair;
+  `cross_encoder.py` scores (query, passage) pairs with a pretrained
+  cross-encoder. Off by default (`--rerank none`).
 - **Query Router** (`query_router.py`): per-query-type encoding (text/image/audio/video/mixed), per-branch similarities, z-scoring, and weighted fusion. Text queries score all three branches with one CLIP vector; audio-clip queries use WavLM + adapter and reach the audio branch only; image and video queries skip the audio branch, since image vectors are not aligned with the adapter's text space. Branches a query cannot reach get zero weight and the rest are renormalized.
 
 ### Explainability (`src/explainability/`)

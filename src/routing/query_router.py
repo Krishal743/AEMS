@@ -30,10 +30,13 @@ from src.config import (
     AEMS_TEXT_CHUNKS_PATH_TEMPLATE,
     AEMS_GATING_WEIGHTS_PATH,
     AEMS_AUDIO_ADAPTER_PATH,
+    AEMS_PER_CANDIDATE_GATE_PATH,
     AEMS_FUSION_WEIGHTS,
 )
 from src.models.gating_network import GatingNetwork
 from src.models.audio_adapter import load_audio_adapter
+
+CROSS_ENCODER_MODEL = "cross-encoder/ms-marco-MiniLM-L6-v2"
 
 BRANCHES = ("visual", "text", "chunk", "audio")
 
@@ -48,6 +51,17 @@ def add_index_args(parser):
     parser.add_argument("--fusion", choices=["gate", "fixed"], default="gate",
                         help="gate: per-query gating network (default); fixed: AEMS_FUSION_WEIGHTS")
     parser.add_argument("--gate-weights", default=AEMS_GATING_WEIGHTS_PATH)
+    parser.add_argument("--rerank", choices=["none", "gate", "cross"], default="none",
+                        help="stage-2 reranking of the shortlist: none (default, fastest); "
+                             "gate: per-candidate gating network; cross: cross-encoder "
+                             "(reads query and passage together — much better, much slower)")
+    parser.add_argument("--rerank-top-k", type=int, default=20, help="shortlist depth to rerank")
+    parser.add_argument("--per-candidate-gate", default=AEMS_PER_CANDIDATE_GATE_PATH)
+    parser.add_argument("--cross-encoder", default=CROSS_ENCODER_MODEL)
+    parser.add_argument("--rerank-passages", type=int, default=3,
+                        help="passages per candidate scored by the cross-encoder")
+    parser.add_argument("--rerank-alpha", type=float, default=0.5,
+                        help="weight of the cross-encoder score against the stage-1 score")
     parser.add_argument("--top-k", type=int, default=5)
 
 
@@ -239,3 +253,47 @@ def search(index, clip_query=None, audio_query=None, gate=None, weights=None):
 
     zeros = torch.zeros(len(video_ids))
     return (w,) + tuple(zeros if s is None else zscore(s.float().cpu()) for s in sims)
+
+
+def apply_rerank(args, weights, sims, index, clip_query=None, query_text=None,
+                 records=None, chunk_db=None, device="cpu"):
+    """Fuse the branches, then optionally rescore the shortlist with stage 2.
+
+    Returns stage-1 fused scores unchanged when --rerank none, so the fast path
+    costs nothing. A reranker that cannot run (missing checkpoint, or no query
+    text for the cross-encoder) warns and falls back to stage 1 rather than
+    failing the search.
+    """
+    fused = sum(float(w) * s for w, s in zip(weights, sims))
+    if args.rerank == "none" or clip_query is None:
+        return fused
+
+    from src.rerank import stage1 as shortlist
+    scores = fused.unsqueeze(0)
+    candidates = shortlist.top_k_candidates(scores, args.rerank_top_k)
+
+    if args.rerank == "gate":
+        from src.rerank import per_candidate
+        if not os.path.exists(args.per_candidate_gate):
+            print(f"[WARN] {args.per_candidate_gate} not found; skipping reranking")
+            return fused
+        model = per_candidate.load(args.per_candidate_gate, device, n_branches=len(BRANCHES))
+        feats = shortlist.gather_branch_scores([s.unsqueeze(0) for s in sims], candidates)
+        with torch.no_grad():
+            rescored = per_candidate.score(model, clip_query.to(device), feats.to(device)).cpu()
+        return shortlist.rerank_scores_to_ranking(scores, candidates, rescored).squeeze(0)
+
+    from src.rerank import cross_encoder
+    if query_text is None or records is None or chunk_db is None:
+        print("[WARN] cross-encoder reranking needs the query text, the manifest records and "
+              "the chunk embeddings; falling back to stage 1")
+        return fused
+    model, tokenizer = cross_encoder.load_cross_encoder(args.cross_encoder, device)
+    store = cross_encoder.PassageStore(records, index.video_ids, chunk_db, device)
+    rescored = cross_encoder.rerank(model, tokenizer, [query_text], clip_query.to(device),
+                                    candidates.to(device), store, index.video_ids,
+                                    n_passages=args.rerank_passages, device=device).cpu()
+    z = (rescored - rescored.mean()) / (rescored.std() + 1e-6)
+    base = scores.gather(1, candidates)
+    return shortlist.rerank_scores_to_ranking(scores, candidates,
+                                              base + args.rerank_alpha * z).squeeze(0)

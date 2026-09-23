@@ -37,6 +37,8 @@ parser.add_argument("--top-k", type=int, nargs="+", default=[20, 50, 100],
 parser.add_argument("--passages", type=int, nargs="+", default=[1, 3],
                     help="passages per candidate to try on validation")
 parser.add_argument("--alphas", type=float, nargs="+", default=[0.25, 0.5, 1.0, 2.0, 4.0])
+parser.add_argument("--batch-size", type=int, default=256,
+                    help="cross-encoder pairs per forward pass")
 parser.add_argument("--bootstrap-iters", type=int, default=1000)
 parser.add_argument("--output", default="outputs/aems/reranker_comparison.json")
 parser.add_argument("--seed", type=int, default=42)
@@ -225,7 +227,8 @@ for key in args.models:
             d = data["val"]
             candidates = stage1.top_k_candidates(d["scores"], k)
             scores = cross_encoder.rerank(ce_model, tokenizer, d["texts"], d["q"], candidates,
-                                          d["store"], d["vids"], n_passages=n_pass, device=DEVICE)
+                                          d["store"], d["vids"], n_passages=n_pass,
+                                          batch_size=args.batch_size, device=DEVICE)
             for alpha in args.alphas:
                 full = combined("val", k, scores, alpha, candidates)
                 r1 = metrics_from_ranks(ground_truth_ranks(full, d["gt"]))["R@1"]
@@ -239,13 +242,15 @@ for key in args.models:
         d = data[split_name]
         candidates = stage1.top_k_candidates(d["scores"], k)
         scores = cross_encoder.rerank(ce_model, tokenizer, d["texts"], d["q"], candidates,
-                                      d["store"], d["vids"], n_passages=n_pass, device=DEVICE)
+                                      d["store"], d["vids"], n_passages=n_pass,
+                                          batch_size=args.batch_size, device=DEVICE)
         full = combined(split_name, k, scores, alpha, candidates)
 
         def one(i, d=d, k=k, n_pass=n_pass):
             c = stage1.top_k_candidates(d["scores"][i:i + 1], k)
             cross_encoder.rerank(ce_model, tokenizer, d["texts"][i:i + 1], d["q"][i:i + 1], c,
-                                 d["store"], d["vids"], n_passages=n_pass, device=DEVICE)
+                                 d["store"], d["vids"], n_passages=n_pass,
+                                          batch_size=args.batch_size, device=DEVICE)
 
         latency = single_query_latency(one, n=10)
         entry = report(key, split_name, full,

@@ -100,6 +100,22 @@ caption, passage and audio branches. Weights come from
 with `--fusion gate`. Re-tune the fixed weights on a validation split whenever
 the branches change; never on test.
 
+## Two-stage retrieval
+
+Stage 1 (above) scores every video. `--rerank` adds a stage 2 over the top
+`--rerank-top-k` candidates only:
+
+- `gate` — the per-candidate gating network
+  (`bin/training/train_per_candidate_gate.py`), which predicts fusion weights
+  per query-candidate pair from scores stage 1 already computed. Nearly free,
+  worth +0.009 R@1.
+- `cross` — a cross-encoder that reads query and passage together
+  (`cross-encoder/ms-marco-MiniLM-L6-v2` by default). Worth +0.125 R@1 at
+  ~12 ms/query.
+
+Compare them with `python bin/evaluation/eval_rerankers.py`, which tunes depth,
+passages per candidate and the blend weight on validation and scores test once.
+
 ## Queries and demo
 
 ```bash
@@ -110,6 +126,10 @@ python bin/queries/query_video.py --video  clip.mp4
 python bin/queries/query_mixed.py --text "your text" --image query.jpg
 python bin/demo/demo.py --query "your text" --top-k 5
 python bin/evaluation/behavioural_test.py
+
+# optional stage-2 reranking of the shortlist (off by default)
+python bin/queries/query_text.py --query "your text" --rerank gate    # ~0.1 ms/query
+python bin/queries/query_text.py --query "your text" --rerank cross   # ~12 ms/query
 ```
 
 Text queries score all four branches with one CLIP vector, because the audio

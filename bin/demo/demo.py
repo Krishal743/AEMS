@@ -8,9 +8,11 @@ from src.explainability.explain_retrieval import (
     format_explanation,
 )
 from src.routing.query_router import (
-    add_index_args, load_search_index, load_fusion_gate, load_clip,
+    add_index_args, apply_rerank, load_search_index, load_fusion_gate, load_clip,
     encode_text_query, search,
 )
+from src.config import AEMS_MANIFEST_PATH
+from src.data.metadata import load_metadata
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -43,6 +45,18 @@ def main():
 
     print("[SEARCH] Scoring and fusing...", end=" ", flush=True)
     w, *sims = search(index, clip_query=clip_query, audio_query=audio_query, gate=gate)
+    if args.rerank != "none":
+        records, chunk_db = None, None
+        if args.rerank == "cross":
+            records = {r["video_id"]: r for r in load_metadata(AEMS_MANIFEST_PATH)}
+            chunk_db = torch.load(args.chunk_embeds, weights_only=False)
+        ranking = apply_rerank(args, w, sims, index, clip_query=clip_query.cpu(),
+                               query_text=args.query, records=records, chunk_db=chunk_db,
+                               device=DEVICE)
+        order = torch.argsort(ranking, descending=True)[:args.top_k]
+        print(f"\nReranked top-{args.top_k} (--rerank {args.rerank}):")
+        for rank, idx in enumerate(order.tolist(), 1):
+            print(f"  {rank}. {index.video_ids[idx]}  score={ranking[idx]:.4f}")
     print("done")
 
     print("[EXPLAIN] Generating explanations...")

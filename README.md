@@ -139,6 +139,22 @@ rather than the gate collapsing onto text as an earlier version did.
 Starting point before this work: R@1 0.389, R@10 0.554 (the gate had collapsed
 to text-only search) and audio-only 0.004 with CLAP.
 
+### Two-stage retrieval (optional, `--rerank`)
+
+Stage 1 above ranks all 1,022 videos. A stage-2 reranker rescores only its top
+candidates, which is where the remaining headroom is: the right video is in
+stage 1's top 50 for 79% of queries but ranked first for 46%.
+
+| Reranker | R@1 | R@10 | Δ R@1 vs stage 1 | ms/query |
+|---|---|---|---|---|
+| none (stage 1 only) | 0.462 | 0.665 | — | 0 |
+| `--rerank gate` (per-candidate gating) | 0.471 | 0.664 | +0.009 [+0.003, +0.015] | 0.1 |
+| `--rerank cross` (MiniLM cross-encoder) | **0.587** | **0.713** | **+0.125 [+0.114, +0.135]** | 12 |
+
+The cross-encoder reads the query and a transcript passage *together* rather
+than comparing two independently-made embeddings. It is off by default because
+it adds latency; both rerankers are opt-in.
+
 Results are saved to `outputs/aems/`.
 
 ## 🔬 Research & Experimentation
