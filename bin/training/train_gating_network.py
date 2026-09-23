@@ -52,8 +52,13 @@ parser.add_argument("--temperature", type=float, default=0.2,
 parser.add_argument("--folds", type=int, default=4, help="cross-fitting folds for the audio branch")
 parser.add_argument("--adapter-epochs", type=int, default=39)
 parser.add_argument("--val-frac", type=float, default=0.15)
-parser.add_argument("--seed", type=int, default=42)
+parser.add_argument("--seeds", type=int, nargs="+", default=[42],
+                    help="train each seed, report mean/std, save the best on VALIDATION")
+parser.add_argument("--no-cross-fit", action="store_true",
+                    help="train on the deployed adapter's audio instead of out-of-fold "
+                         "projections. Biased (the adapter saw these videos); for ablation only.")
 args = parser.parse_args()
+args.seed = args.seeds[0]
 set_seeds(args.seed)
 
 records = load_records(args.manifest, "train")
@@ -75,19 +80,24 @@ print("[ENC] Encoding QA questions with CLIP...", flush=True)
 texts, rows = flatten_questions(records, fit_vids + val_vids)
 q_emb = encode_clip_text(texts, DEVICE)
 
-print(f"[AUDIO] Cross-fitting {args.folds} adapters for out-of-fold train audio...", flush=True)
-folds = [fit_vids[i::args.folds] for i in range(args.folds)]
-oof = {}
-for i, fold in enumerate(folds):
-    other = [v for j, f in enumerate(folds) if j != i for v in f]
-    targets = [torch.cat([F.normalize(torch.as_tensor(desc_db[v]).float().view(1, -1), dim=1),
-                          q_emb[rows[v]]]) for v in other]
-    adapter, _, _ = fit_adapter(stack_embeddings(feat_db, other), targets, DEVICE,
-                                epochs=args.adapter_epochs, seed=args.seed)
-    projected = project(adapter, stack_embeddings(feat_db, fold), DEVICE)
-    for j, v in enumerate(fold):
-        oof[v] = projected[j]
-    print(f"  fold {i + 1}/{args.folds}: fitted on {len(other)}, projected {len(fold)}", flush=True)
+oof = aud_db
+if args.no_cross_fit:
+    print("[WARN] --no-cross-fit: training on audio the deployed adapter was fitted on. "
+          "These similarities are optimistic and the gate will over-trust audio.", flush=True)
+else:
+    print(f"[AUDIO] Cross-fitting {args.folds} adapters for out-of-fold train audio...", flush=True)
+    oof = {}
+    folds = [fit_vids[i::args.folds] for i in range(args.folds)]
+    for i, fold in enumerate(folds):
+        other = [v for j, f in enumerate(folds) if j != i for v in f]
+        targets = [torch.cat([F.normalize(torch.as_tensor(desc_db[v]).float().view(1, -1), dim=1),
+                              q_emb[rows[v]]]) for v in other]
+        adapter, _, _ = fit_adapter(stack_embeddings(feat_db, other), targets, DEVICE,
+                                    epochs=args.adapter_epochs, seed=args.seed)
+        projected = project(adapter, stack_embeddings(feat_db, fold), DEVICE)
+        for j, v in enumerate(fold):
+            oof[v] = projected[j]
+        print(f"  fold {i + 1}/{args.folds}: fitted on {len(other)}, projected {len(fold)}", flush=True)
 
 
 def chunk_index(videos):
@@ -142,48 +152,75 @@ config_w = torch.tensor([[AEMS_FUSION_WEIGHTS[b] for b in BRANCHES]], device=DEV
 config_r1 = recall_metrics(fuse(config_w, val["sims"]), val["gt"])["R@1"]
 print(f"[BASELINE] val R@1: config weights={config_r1:.4f}  best fixed {fixed_w}={fixed_r1:.4f}", flush=True)
 
-gate = GatingNetwork(input_dim=512, hidden_dim=args.hidden_dim,
-                     num_modalities=len(BRANCHES)).to(DEVICE)
-opt = torch.optim.AdamW(gate.parameters(), lr=args.lr, weight_decay=1e-4)
-sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, args.epochs)
-rng = np.random.default_rng(args.seed)
-n = fit["q"].shape[0]
-best_r1, best_state, best_epoch = -1.0, None, -1
+def train_seed(seed):
+    """Train one gate; returns (best val R@1, best state, best epoch)."""
+    set_seeds(seed)
+    gate = GatingNetwork(input_dim=512, hidden_dim=args.hidden_dim,
+                         num_modalities=len(BRANCHES)).to(DEVICE)
+    opt = torch.optim.AdamW(gate.parameters(), lr=args.lr, weight_decay=1e-4)
+    sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, args.epochs)
+    rng = np.random.default_rng(seed)
+    n = fit["q"].shape[0]
+    best_r1, best_state, best_epoch = -1.0, None, -1
 
-print(f"[TRAIN] {args.epochs} epochs over {n} queries / {len(fit_vids)} candidates", flush=True)
-for epoch in range(args.epochs):
-    gate.train()
-    perm = rng.permutation(n)
-    total, nb = 0.0, 0
-    for s in range(0, n, args.batch_size):
-        idx = torch.as_tensor(perm[s:s + args.batch_size], device=DEVICE)
-        w = gate(fit["q"][idx])
-        logits = fuse(w, [sim[idx] for sim in fit["sims"]]) / args.temperature
-        loss = F.cross_entropy(logits, fit["gt"][idx])
-        opt.zero_grad()
-        loss.backward()
-        opt.step()
-        total += loss.item()
-        nb += 1
-    sched.step()
+    print(f"[TRAIN] seed {seed}: {args.epochs} epochs over {n} queries / "
+          f"{len(fit_vids)} candidates", flush=True)
+    for epoch in range(args.epochs):
+        gate.train()
+        perm = rng.permutation(n)
+        total, nb = 0.0, 0
+        for s_idx in range(0, n, args.batch_size):
+            idx = torch.as_tensor(perm[s_idx:s_idx + args.batch_size], device=DEVICE)
+            w = gate(fit["q"][idx])
+            logits = fuse(w, [sim[idx] for sim in fit["sims"]]) / args.temperature
+            loss = F.cross_entropy(logits, fit["gt"][idx])
+            opt.zero_grad()
+            loss.backward()
+            opt.step()
+            total += loss.item()
+            nb += 1
+        sched.step()
+        gate.eval()
+        with torch.no_grad():
+            r1 = recall_metrics(fuse(gate(val["q"]), val["sims"]), val["gt"])["R@1"]
+        print(f"  epoch {epoch + 1:02d}  loss={total / nb:.4f}  val R@1={r1:.4f}", flush=True)
+        if r1 > best_r1:
+            best_r1, best_epoch = r1, epoch + 1
+            best_state = {k: v.detach().cpu().clone() for k, v in gate.state_dict().items()}
+    return best_r1, best_state, best_epoch
+
+
+def describe(state):
+    gate = GatingNetwork(input_dim=512, hidden_dim=args.hidden_dim,
+                         num_modalities=len(BRANCHES)).to(DEVICE)
+    gate.load_state_dict(state)
     gate.eval()
     with torch.no_grad():
         w_val = gate(val["q"])
-        r1 = recall_metrics(fuse(w_val, val["sims"]), val["gt"])["R@1"]
-    print(f"  epoch {epoch + 1:02d}  loss={total / nb:.4f}  val R@1={r1:.4f}  "
-          f"w={[round(x, 3) for x in w_val.mean(0).tolist()]}", flush=True)
-    if r1 > best_r1:
-        best_r1, best_epoch = r1, epoch + 1
-        best_state = {k: v.detach().cpu().clone() for k, v in gate.state_dict().items()}
+        metrics = recall_metrics(fuse(w_val, val["sims"]), val["gt"])
+    return metrics, w_val.mean(0).tolist(), w_val.std(0).tolist()
 
-gate.load_state_dict(best_state)
-gate.eval()
-with torch.no_grad():
-    w_val = gate(val["q"])
-    metrics = recall_metrics(fuse(w_val, val["sims"]), val["gt"])
-mean_w, std_w = w_val.mean(0).tolist(), w_val.std(0).tolist()
 
-print(f"\n[BEST] epoch {best_epoch}  val {metrics}")
+per_seed = {}
+best_overall = (-1.0, None, None)
+for seed in args.seeds:
+    r1, state, epoch = train_seed(seed)
+    metrics, mean_w, std_w = describe(state)
+    per_seed[seed] = {"val_R@1": r1, "best_epoch": epoch, "val_metrics": metrics,
+                      "weight_mean": mean_w, "weight_std": std_w}
+    print(f"[SEED {seed}] val R@1={r1:.4f} (epoch {epoch})  "
+          f"w={[round(x, 3) for x in mean_w]}", flush=True)
+    if r1 > best_overall[0]:
+        best_overall = (r1, state, seed)
+
+best_r1, best_state, best_seed = best_overall
+metrics, mean_w, std_w = describe(best_state)
+seed_r1s = [per_seed[s]["val_R@1"] for s in args.seeds]
+
+print(f"\n[SEEDS] val R@1 mean={np.mean(seed_r1s):.4f} "
+      f"std={np.std(seed_r1s, ddof=1) if len(seed_r1s) > 1 else 0.0:.4f} "
+      f"over {len(seed_r1s)} seed(s); keeping seed {best_seed} (best on validation)")
+print(f"[BEST] val {metrics}")
 print(f"[WEIGHTS] mean {'/'.join(BRANCHES)} = {[round(x, 3) for x in mean_w]}  "
       f"std = {[round(x, 3) for x in std_w]}")
 if max(mean_w) > 0.95 or max(std_w) < 0.01:
@@ -194,14 +231,20 @@ if best_r1 <= fixed_r1:
           f"({fixed_r1:.4f}) on validation; prefer --fusion fixed.")
 
 os.makedirs(os.path.dirname(args.output), exist_ok=True)
-torch.save(gate.state_dict(), args.output)
+torch.save(best_state, args.output)
 print(f"[SAVE] gating weights -> {args.output}")
 
 summary = {"val_R@1_gate": best_r1, "val_R@1_best_fixed": fixed_r1, "best_fixed_weights": fixed_w,
            "val_R@1_config_weights": config_r1, "val_metrics": metrics,
-           "weight_mean": mean_w, "weight_std": std_w, "best_epoch": best_epoch,
-           "temperature": args.temperature, "folds": args.folds, "seed": args.seed}
+           "weight_mean": mean_w, "weight_std": std_w, "best_seed": best_seed,
+           "seeds": {str(k): v for k, v in per_seed.items()},
+           "val_R@1_seed_mean": float(np.mean(seed_r1s)),
+           "val_R@1_seed_std": float(np.std(seed_r1s, ddof=1)) if len(seed_r1s) > 1 else 0.0,
+           "temperature": args.temperature, "folds": 0 if args.no_cross_fit else args.folds,
+           "cross_fitted": not args.no_cross_fit}
 os.makedirs("outputs/aems", exist_ok=True)
-with open("outputs/aems/gating_training_summary.json", "w") as f:
+summary_path = ("outputs/aems/gating_training_summary_no_crossfit.json" if args.no_cross_fit
+                else "outputs/aems/gating_training_summary.json")
+with open(summary_path, "w") as f:
     json.dump(summary, f, indent=2)
-print("[SAVE] summary -> outputs/aems/gating_training_summary.json")
+print(f"[SAVE] summary -> {summary_path}")
