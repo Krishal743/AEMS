@@ -1,0 +1,701 @@
+{
+  "nodes": [
+    {
+      "id": "docs_known_bugs",
+      "label": "Known Bugs Documentation",
+      "file_type": "document",
+      "source_file": "/home/pesu-rf/team23/docs/KNOWN_BUGS.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_pipeline",
+      "label": "Pipeline Execution Order",
+      "file_type": "document",
+      "source_file": "/home/pesu-rf/team23/docs/PIPELINE.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_priority_1",
+      "label": "Priority 1 Optimizations",
+      "file_type": "document",
+      "source_file": "/home/pesu-rf/team23/docs/PRIORITY_1_IMPLEMENTATION.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_checkpoint",
+      "label": "Project Checkpoint - Query-Conditioned Adaptive Video Retrieval",
+      "file_type": "document",
+      "source_file": "/home/pesu-rf/team23/docs/PROJECT_CHECKPOINT.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "docs_pseudocode",
+      "label": "System Pseudocode and Architecture",
+      "file_type": "document",
+      "source_file": "/home/pesu-rf/team23/docs/PSEUDOCODE.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "beats_code_readme",
+      "label": "BEATs Audio Pre-Training Model",
+      "file_type": "document",
+      "source_file": "/home/pesu-rf/team23/experiments/audio_alignment/beats_code/README.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": "Sanyuan Chen, Yu Wu, Chengyi Wang, Shujie Liu, Daniel Tompkins, Zhuo Chen, Furu Wei",
+      "contributor": null
+    },
+    {
+      "id": "imagebind_readme",
+      "label": "ImageBind: One Embedding Space To Bind Them All",
+      "file_type": "document",
+      "source_file": "/home/pesu-rf/team23/experiments/audio_alignment/imagebind_code/README.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": "Rohit Girdhar, Alaaeldin El-Nouby, Zhuang Liu, Mannat Singh, Kalyan Vasudev Alwala, Armand Joulin, Ishan Misra",
+      "contributor": null
+    },
+    {
+      "id": "imagebind_model_card",
+      "label": "ImageBind Model Card",
+      "file_type": "document",
+      "source_file": "/home/pesu-rf/team23/experiments/audio_alignment/imagebind_code/model_card.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": "Meta AI",
+      "contributor": null
+    },
+    {
+      "id": "imagebind_coc",
+      "label": "ImageBind Code of Conduct",
+      "file_type": "document",
+      "source_file": "/home/pesu-rf/team23/experiments/audio_alignment/imagebind_code/CODE_OF_CONDUCT.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "imagebind_contributing",
+      "label": "ImageBind Contributing Guidelines",
+      "file_type": "document",
+      "source_file": "/home/pesu-rf/team23/experiments/audio_alignment/imagebind_code/CONTRIBUTING.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "requirements_main",
+      "label": "Project Requirements",
+      "file_type": "document",
+      "source_file": "/home/pesu-rf/team23/requirements.txt",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "imagebind_requirements",
+      "label": "ImageBind Requirements",
+      "file_type": "document",
+      "source_file": "/home/pesu-rf/team23/experiments/audio_alignment/imagebind_code/requirements.txt",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "bird_image",
+      "label": "Bird Image Sample - ImageBind Example",
+      "file_type": "image",
+      "source_file": "/home/pesu-rf/team23/experiments/audio_alignment/imagebind_code/.assets/bird_image.jpg",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "car_image",
+      "label": "Car Image Sample - ImageBind Example",
+      "file_type": "image",
+      "source_file": "/home/pesu-rf/team23/experiments/audio_alignment/imagebind_code/.assets/car_image.jpg",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "dog_image",
+      "label": "Dog Image Sample - ImageBind Example",
+      "file_type": "image",
+      "source_file": "/home/pesu-rf/team23/experiments/audio_alignment/imagebind_code/.assets/dog_image.jpg",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "concept_msrvtt_dataset",
+      "label": "MSR-VTT Dataset",
+      "file_type": "concept",
+      "source_file": "/home/pesu-rf/team23/docs/PROJECT_CHECKPOINT.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "concept_clip_encoder",
+      "label": "CLIP Encoder (OpenAI ViT-B/32)",
+      "file_type": "concept",
+      "source_file": "/home/pesu-rf/team23/docs/PSEUDOCODE.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "concept_clap_encoder",
+      "label": "CLAP Audio Encoder",
+      "file_type": "concept",
+      "source_file": "/home/pesu-rf/team23/docs/PSEUDOCODE.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "concept_gating_network",
+      "label": "Gating Network - Query-Adaptive Modality Fusion",
+      "file_type": "concept",
+      "source_file": "/home/pesu-rf/team23/docs/PSEUDOCODE.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "concept_temporal_transformer",
+      "label": "Temporal Transformer for Video Understanding",
+      "file_type": "concept",
+      "source_file": "/home/pesu-rf/team23/docs/PSEUDOCODE.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "concept_imagebind",
+      "label": "ImageBind Multimodal Embedding",
+      "file_type": "concept",
+      "source_file": "/home/pesu-rf/team23/experiments/audio_alignment/imagebind_code/README.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": "Rohit Girdhar et al.",
+      "contributor": null
+    },
+    {
+      "id": "concept_beats",
+      "label": "BEATs - Audio Pre-Training with Acoustic Tokenizers",
+      "file_type": "concept",
+      "source_file": "/home/pesu-rf/team23/experiments/audio_alignment/beats_code/README.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": "Sanyuan Chen et al.",
+      "contributor": null
+    },
+    {
+      "id": "concept_angular_similarity",
+      "label": "Angular Similarity Metric",
+      "file_type": "concept",
+      "source_file": "/home/pesu-rf/team23/docs/PRIORITY_1_IMPLEMENTATION.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "concept_temperature_scaling",
+      "label": "Temperature Scaling Optimization",
+      "file_type": "concept",
+      "source_file": "/home/pesu-rf/team23/docs/PRIORITY_1_IMPLEMENTATION.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "concept_modality_scaling",
+      "label": "Modality-Specific Normalization",
+      "file_type": "concept",
+      "source_file": "/home/pesu-rf/team23/docs/PRIORITY_1_IMPLEMENTATION.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "bug_caption_truncation",
+      "label": "Bug 1: Caption Truncation in eval_transformer_baseline.py",
+      "file_type": "concept",
+      "source_file": "/home/pesu-rf/team23/docs/KNOWN_BUGS.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "bug_train_caption_embeddings",
+      "label": "Bug 2: Missing Train Caption Embeddings in Gating Retraining",
+      "file_type": "concept",
+      "source_file": "/home/pesu-rf/team23/docs/KNOWN_BUGS.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "bug_audio_retrieval",
+      "label": "Bug 4: Audio Retrieval Near-Zero R@1",
+      "file_type": "concept",
+      "source_file": "/home/pesu-rf/team23/docs/KNOWN_BUGS.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "embedding_video_clip",
+      "label": "Video Embeddings (CLIP, 512-dim)",
+      "file_type": "concept",
+      "source_file": "/home/pesu-rf/team23/docs/PROJECT_CHECKPOINT.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "embedding_audio_clap",
+      "label": "Audio Embeddings (CLAP, 512-dim)",
+      "file_type": "concept",
+      "source_file": "/home/pesu-rf/team23/docs/PROJECT_CHECKPOINT.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "embedding_caption",
+      "label": "Caption Embeddings (CLIP Text, 512-dim)",
+      "file_type": "concept",
+      "source_file": "/home/pesu-rf/team23/docs/PROJECT_CHECKPOINT.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "embedding_video_transformer",
+      "label": "Transformer Video Embeddings (Temporal)",
+      "file_type": "concept",
+      "source_file": "/home/pesu-rf/team23/docs/PROJECT_CHECKPOINT.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    }
+  ],
+  "edges": [
+    {
+      "source": "docs_checkpoint",
+      "target": "concept_msrvtt_dataset",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "/home/pesu-rf/team23/docs/PROJECT_CHECKPOINT.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_checkpoint",
+      "target": "concept_clip_encoder",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "/home/pesu-rf/team23/docs/PROJECT_CHECKPOINT.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_checkpoint",
+      "target": "concept_clap_encoder",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "/home/pesu-rf/team23/docs/PROJECT_CHECKPOINT.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_checkpoint",
+      "target": "concept_gating_network",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "/home/pesu-rf/team23/docs/PROJECT_CHECKPOINT.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_checkpoint",
+      "target": "concept_temporal_transformer",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "/home/pesu-rf/team23/docs/PROJECT_CHECKPOINT.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_pseudocode",
+      "target": "concept_clip_encoder",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "/home/pesu-rf/team23/docs/PSEUDOCODE.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_pseudocode",
+      "target": "concept_clap_encoder",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "/home/pesu-rf/team23/docs/PSEUDOCODE.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_pseudocode",
+      "target": "concept_gating_network",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "/home/pesu-rf/team23/docs/PSEUDOCODE.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_pseudocode",
+      "target": "concept_temporal_transformer",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "/home/pesu-rf/team23/docs/PSEUDOCODE.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_priority_1",
+      "target": "concept_angular_similarity",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "/home/pesu-rf/team23/docs/PRIORITY_1_IMPLEMENTATION.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_priority_1",
+      "target": "concept_temperature_scaling",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "/home/pesu-rf/team23/docs/PRIORITY_1_IMPLEMENTATION.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_priority_1",
+      "target": "concept_modality_scaling",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "/home/pesu-rf/team23/docs/PRIORITY_1_IMPLEMENTATION.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_known_bugs",
+      "target": "bug_caption_truncation",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "/home/pesu-rf/team23/docs/KNOWN_BUGS.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_known_bugs",
+      "target": "bug_train_caption_embeddings",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "/home/pesu-rf/team23/docs/KNOWN_BUGS.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_known_bugs",
+      "target": "bug_audio_retrieval",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "/home/pesu-rf/team23/docs/KNOWN_BUGS.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "concept_gating_network",
+      "target": "embedding_video_clip",
+      "relation": "conceptually_related_to",
+      "confidence": "INFERRED",
+      "confidence_score": 0.95,
+      "source_file": "/home/pesu-rf/team23/docs/PSEUDOCODE.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "concept_gating_network",
+      "target": "embedding_audio_clap",
+      "relation": "conceptually_related_to",
+      "confidence": "INFERRED",
+      "confidence_score": 0.95,
+      "source_file": "/home/pesu-rf/team23/docs/PSEUDOCODE.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "concept_gating_network",
+      "target": "embedding_caption",
+      "relation": "conceptually_related_to",
+      "confidence": "INFERRED",
+      "confidence_score": 0.95,
+      "source_file": "/home/pesu-rf/team23/docs/PSEUDOCODE.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "concept_temporal_transformer",
+      "target": "embedding_video_transformer",
+      "relation": "conceptually_related_to",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "/home/pesu-rf/team23/docs/PROJECT_CHECKPOINT.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "docs_pipeline",
+      "target": "docs_checkpoint",
+      "relation": "references",
+      "confidence": "INFERRED",
+      "confidence_score": 0.85,
+      "source_file": "/home/pesu-rf/team23/docs/PIPELINE.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "imagebind_readme",
+      "target": "concept_imagebind",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "/home/pesu-rf/team23/experiments/audio_alignment/imagebind_code/README.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "imagebind_model_card",
+      "target": "concept_imagebind",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "/home/pesu-rf/team23/experiments/audio_alignment/imagebind_code/model_card.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "beats_code_readme",
+      "target": "concept_beats",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "/home/pesu-rf/team23/experiments/audio_alignment/beats_code/README.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "bird_image",
+      "target": "concept_imagebind",
+      "relation": "conceptually_related_to",
+      "confidence": "INFERRED",
+      "confidence_score": 0.9,
+      "source_file": "/home/pesu-rf/team23/experiments/audio_alignment/imagebind_code/.assets/bird_image.jpg",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "car_image",
+      "target": "concept_imagebind",
+      "relation": "conceptually_related_to",
+      "confidence": "INFERRED",
+      "confidence_score": 0.9,
+      "source_file": "/home/pesu-rf/team23/experiments/audio_alignment/imagebind_code/.assets/car_image.jpg",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "dog_image",
+      "target": "concept_imagebind",
+      "relation": "conceptually_related_to",
+      "confidence": "INFERRED",
+      "confidence_score": 0.9,
+      "source_file": "/home/pesu-rf/team23/experiments/audio_alignment/imagebind_code/.assets/dog_image.jpg",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "requirements_main",
+      "target": "concept_clip_encoder",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "/home/pesu-rf/team23/requirements.txt",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "requirements_main",
+      "target": "concept_clap_encoder",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "/home/pesu-rf/team23/requirements.txt",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "imagebind_requirements",
+      "target": "concept_imagebind",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "/home/pesu-rf/team23/experiments/audio_alignment/imagebind_code/requirements.txt",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "bug_train_caption_embeddings",
+      "target": "concept_gating_network",
+      "relation": "conceptually_related_to",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "/home/pesu-rf/team23/docs/KNOWN_BUGS.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "bug_audio_retrieval",
+      "target": "concept_clap_encoder",
+      "relation": "conceptually_related_to",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "/home/pesu-rf/team23/docs/KNOWN_BUGS.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "concept_angular_similarity",
+      "target": "concept_gating_network",
+      "relation": "conceptually_related_to",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "/home/pesu-rf/team23/docs/PRIORITY_1_IMPLEMENTATION.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "concept_temperature_scaling",
+      "target": "concept_clap_encoder",
+      "relation": "conceptually_related_to",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "/home/pesu-rf/team23/docs/PRIORITY_1_IMPLEMENTATION.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "concept_modality_scaling",
+      "target": "concept_gating_network",
+      "relation": "conceptually_related_to",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "/home/pesu-rf/team23/docs/PRIORITY_1_IMPLEMENTATION.md",
+      "source_location": null,
+      "weight": 1.0
+    }
+  ],
+  "hyperedges": [],
+  "input_tokens": 0,
+  "output_tokens": 0
+}

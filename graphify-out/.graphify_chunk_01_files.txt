@@ -1,0 +1,15 @@
+/home/pesu-rf/team23/docs/KNOWN_BUGS.md
+/home/pesu-rf/team23/docs/PIPELINE.md
+/home/pesu-rf/team23/docs/PRIORITY_1_IMPLEMENTATION.md
+/home/pesu-rf/team23/docs/PROJECT_CHECKPOINT.md
+/home/pesu-rf/team23/docs/PSEUDOCODE.md
+/home/pesu-rf/team23/experiments/audio_alignment/beats_code/README.md
+/home/pesu-rf/team23/experiments/audio_alignment/imagebind_code/CODE_OF_CONDUCT.md
+/home/pesu-rf/team23/experiments/audio_alignment/imagebind_code/CONTRIBUTING.md
+/home/pesu-rf/team23/experiments/audio_alignment/imagebind_code/README.md
+/home/pesu-rf/team23/experiments/audio_alignment/imagebind_code/model_card.md
+/home/pesu-rf/team23/experiments/audio_alignment/imagebind_code/requirements.txt
+/home/pesu-rf/team23/requirements.txt
+/home/pesu-rf/team23/experiments/audio_alignment/imagebind_code/.assets/bird_image.jpg
+/home/pesu-rf/team23/experiments/audio_alignment/imagebind_code/.assets/car_image.jpg
+/home/pesu-rf/team23/experiments/audio_alignment/imagebind_code/.assets/dog_image.jpg
