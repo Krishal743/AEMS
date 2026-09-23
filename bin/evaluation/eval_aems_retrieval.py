@@ -2,7 +2,9 @@ import sys, json, torch, argparse, os, gc, time, random
 import clip
 import numpy as np
 from src.routing.query_router import load_gate, zscore, fixed_weights, ChunkIndex
-from src.evaluation.evaluate_retrieval import evaluate_retrieval
+from src.evaluation.evaluate_retrieval import (ground_truth_ranks, hits_at_k,
+                                               metrics_from_ranks, bootstrap_ci,
+                                               paired_bootstrap)
 from src.config import (AEMS_MANIFEST_PATH, AEMS_VID_EMBEDDINGS_PATH, AEMS_AUDIO_EMBEDDINGS_PATH,
                          AEMS_VIDEO_EMBEDDINGS_TRANSFORMER_PATH, AEMS_GATING_WEIGHTS_PATH,
                          AEMS_TEXT_EMBEDDINGS_DESC_PATH_TEMPLATE,
@@ -198,31 +200,10 @@ if sim_gated is not None:
     systems["adaptive_gating"] = sim_gated
 
 
-def compute_recall_at_k(sim_matrix, gt_ids, video_ids, k):
-    sim_matrix = sim_matrix.clone()
-    results = 0.0
-    for i in range(sim_matrix.size(0)):
-        gt = gt_ids[i]
-        ranked = torch.argsort(sim_matrix[i], descending=True)
-        topk = [video_ids[j] for j in ranked[:k].tolist()]
-        if gt in topk:
-            results += 1.0
-    return results / max(sim_matrix.size(0), 1)
+REFERENCE_SYSTEM = "text_only"   # what headline gains are quoted against
+KS = (1, 5, 10)
 
-
-def bootstrap_ci(sim_matrix, gt_ids, video_ids, k, B=1000, seed=42):
-    rng = random.Random(seed + k)
-    n = sim_matrix.size(0)
-    samples = []
-    for _ in range(B):
-        idx = [rng.randint(0, n - 1) for _ in range(n)]
-        sampled_sim = sim_matrix[idx]
-        sampled_gt = [gt_ids[i] for i in idx]
-        m = compute_recall_at_k(sampled_sim, sampled_gt, video_ids, k)
-        samples.append(m)
-    low = np.percentile(samples, 2.5)
-    high = np.percentile(samples, 97.5)
-    return float(low), float(high)
+gt_index = torch.tensor([common_vids.index(v) for v in query_video_ids])
 
 
 results = {
@@ -247,14 +228,22 @@ print("\n" + "=" * 70)
 print("EVALUATION RESULTS")
 print("=" * 70)
 
+# Rank every system once; every metric below is a reduction over these ranks.
+ranks = {name: ground_truth_ranks(sim, gt_index).cpu() for name, sim in systems.items()}
+
 for name, sim in systems.items():
-    metrics = evaluate_retrieval(sim, query_video_ids, common_vids, ks=[1, 5, 10])
-    sys_entry = {"R@1": metrics["R@1"], "R@5": metrics["R@5"], "R@10": metrics["R@10"]}
+    metrics = metrics_from_ranks(ranks[name], ks=KS)
+    sys_entry = dict(metrics)
 
     if args.bootstrap:
-        for k in [1, 5, 10]:
-            low, high = bootstrap_ci(sim, query_video_ids, common_vids, k, B=args.bootstrap_iters)
+        for k in KS:
+            low, high = bootstrap_ci(hits_at_k(ranks[name], k), iters=args.bootstrap_iters)
             sys_entry[f"R@{k}_CI95"] = [low, high]
+        if name != REFERENCE_SYSTEM and REFERENCE_SYSTEM in ranks:
+            delta, low, high = paired_bootstrap(hits_at_k(ranks[name], 1),
+                                                hits_at_k(ranks[REFERENCE_SYSTEM], 1),
+                                                iters=args.bootstrap_iters)
+            sys_entry[f"R@1_delta_vs_{REFERENCE_SYSTEM}"] = [delta, low, high]
 
     if name == "adaptive_gating" and gate is not None:
         with torch.no_grad():
@@ -270,11 +259,15 @@ for name, sim in systems.items():
 
     results["systems"][name] = sys_entry
 
-    line = f"  {name:>20}: R@1={metrics['R@1']:.4f}  R@5={metrics['R@5']:.4f}  R@10={metrics['R@10']:.4f}"
+    line = (f"  {name:>20}: R@1={metrics['R@1']:.4f}  R@5={metrics['R@5']:.4f}  "
+            f"R@10={metrics['R@10']:.4f}  MRR={metrics['MRR']:.4f}  MdR={metrics['MdR']}")
     if args.bootstrap:
-        for k in [1, 5, 10]:
-            ci = sys_entry.get(f"R@{k}_CI95", [0, 0])
-            line += f"  R@{k}_CI=[{ci[0]:.4f},{ci[1]:.4f}]"
+        ci = sys_entry.get("R@1_CI95", [0, 0])
+        line += f"  R@1_CI=[{ci[0]:.4f},{ci[1]:.4f}]"
+        d = sys_entry.get(f"R@1_delta_vs_{REFERENCE_SYSTEM}")
+        if d:
+            sig = "sig" if (d[1] > 0 or d[2] < 0) else "n.s."
+            line += f"  Δvs{REFERENCE_SYSTEM}={d[0]:+.4f} [{d[1]:+.4f},{d[2]:+.4f}] {sig}"
     print(line)
 
 if gate_available and gate is not None:
@@ -291,47 +284,30 @@ print("CATEGORY-STRATIFIED R@1")
 print("-" * 70)
 
 categories = sorted(set(query_categories))
-cat_table = []
-for cat in categories:
-    cat_mask = [i for i, c in enumerate(query_categories) if c == cat]
-    cat_n = len(cat_mask)
-    cat_row = {"category": cat, "n_queries": cat_n}
-    for name, sim in systems.items():
-        cat_sim = sim[cat_mask]
-        cat_gts = [query_video_ids[i] for i in cat_mask]
-        m = evaluate_retrieval(cat_sim, cat_gts, common_vids, ks=[1, 5, 10])
-        cat_row[f"{name}_R@1"] = m["R@1"]
-        cat_row[f"{name}_R@5"] = m["R@5"]
+category_of = torch.tensor([categories.index(c) for c in query_categories])
+for ci, cat in enumerate(categories):
+    mask = (category_of == ci).nonzero(as_tuple=True)[0]
+    cat_row = {"category": cat, "n_queries": int(mask.numel())}
+    for name in systems:
+        m = metrics_from_ranks(ranks[name][mask], ks=KS)
+        for k in KS:
+            cat_row[f"{name}_R@{k}"] = m[f"R@{k}"]
+    if "adaptive_gating" in systems and "fixed_fusion" in systems:
+        cat_row["gate_minus_fixed_R@1"] = (cat_row["adaptive_gating_R@1"]
+                                           - cat_row["fixed_fusion_R@1"])
     results["category_stratified"][cat] = cat_row
     print(f"  {cat:>30} (n={cat_n:>4}): ", end="")
     for name in systems:
         print(f"{name}={cat_row[f'{name}_R@1']:.4f}  ", end="")
     print()
 
-print("\n" + "-" * 70)
-print("COMPARISON ANCHOR (MSR-VTT honest LOO vs AEMS)")
-print("-" * 70)
-anchor_data = {
-    "Visual only": {"msrvtt": 0.2165},
-    "Text/caption only": {"msrvtt": 0.3972},
-    "Audio only": {"msrvtt": 0.0102},
-    "Equal fusion": {"msrvtt": 0.4303},
-    "Adaptive gating": {"msrvtt": 0.3983},
-}
-for sys_name, anchor_key in [("visual_only", "Visual only"), ("text_only", "Text/caption only"),
-                              ("audio_only", "Audio only"), ("equal_fusion", "Equal fusion"),
-                              ("adaptive_gating", "Adaptive gating")]:
-    if sys_name in results["systems"]:
-        aems_r1 = results["systems"][sys_name]["R@1"]
-        msrvtt_r1 = anchor_data[anchor_key]["msrvtt"]
-        print(f"  {anchor_key:>20}: MSR-VTT={msrvtt_r1:.4f}  AEMS={aems_r1:.4f}")
-
 output_path = os.path.join(OUTPUT_DIR, f"eval_results_{args.visual_variant}_{args.text_variant}_v1.json")
 with open(output_path, "w") as f:
     json.dump(results, f, indent=2)
 print(f"\nResults saved: {output_path}")
 
-summary_path = os.path.join(OUTPUT_DIR, "summary_table_v1.md")
+summary_path = os.path.join(OUTPUT_DIR,
+                            f"summary_table_{args.visual_variant}_{args.text_variant}_v1.md")
 with open(summary_path, "w") as f:
     f.write(f"# AEMS Phase A — Retrieval Results\n\n")
     f.write(f"**Configuration**: visual={args.visual_variant}, text={args.text_variant}, "
@@ -339,18 +315,23 @@ with open(summary_path, "w") as f:
     f.write(f"**Checkpoints**:\n")
     for k, v in results["checkpoint_ids"].items():
         f.write(f"- {k}: {v}\n")
-    f.write(f"\n| System | R@1 | R@5 | R@10 |\n")
-    f.write(f"|---|---|---|---|\n")
-    for name, sim in systems.items():
+    f.write(f"\n| System | R@1 | R@5 | R@10 | MRR | Δ R@1 vs {REFERENCE_SYSTEM} |\n")
+    f.write(f"|---|---|---|---|---|---|\n")
+    for name in systems:
         r = results["systems"][name]
         ci_str = ""
-        if args.bootstrap:
-            ci_str = f"  CI95=[{r['R@1_CI95'][0]:.4f},{r['R@1_CI95'][1]:.4f}]"
-        f.write(f"| {name} | {r['R@1']:.4f}{ci_str} | {r['R@5']:.4f} | {r['R@10']:.4f} |\n")
+        if args.bootstrap and "R@1_CI95" in r:
+            ci_str = f" [{r['R@1_CI95'][0]:.4f}, {r['R@1_CI95'][1]:.4f}]"
+        d = r.get(f"R@1_delta_vs_{REFERENCE_SYSTEM}")
+        delta_str = "—" if not d else (f"{d[0]:+.4f} [{d[1]:+.4f}, {d[2]:+.4f}]"
+                                       + ("" if (d[1] > 0 or d[2] < 0) else " n.s."))
+        f.write(f"| {name} | {r['R@1']:.4f}{ci_str} | {r['R@5']:.4f} | {r['R@10']:.4f} "
+                f"| {r['MRR']:.4f} | {delta_str} |\n")
     if "adaptive_gating" in results["systems"] and "w_v_mean" in results["systems"]["adaptive_gating"]:
         ag = results["systems"]["adaptive_gating"]
         f.write(f"\n**Gating weights**: w_v={ag['w_v_mean']:.4f}±{ag['w_v_std']:.4f}, "
                 f"w_t={ag['w_t_mean']:.4f}±{ag['w_t_std']:.4f}, "
+                f"w_c={ag['w_c_mean']:.4f}±{ag['w_c_std']:.4f}, "
                 f"w_a={ag['w_a_mean']:.4f}±{ag['w_a_std']:.4f}\n")
     f.write(f"\n## Category-stratified R@1\n")
     f.write(f"| Category | n_q |")
@@ -365,15 +346,6 @@ with open(summary_path, "w") as f:
         for name in systems:
             f.write(f" {cat_row[f'{name}_R@1']:.4f} |")
         f.write(f"\n")
-    f.write(f"\n## Comparison anchor\n")
-    for sys_name, anchor_key in [("visual_only", "Visual only"), ("text_only", "Text/caption only"),
-                                  ("audio_only", "Audio only"), ("equal_fusion", "Equal fusion"),
-                                  ("adaptive_gating", "Adaptive gating")]:
-        if sys_name in results["systems"]:
-            aems_r1 = results["systems"][sys_name]["R@1"]
-            msrvtt_r1 = anchor_data[anchor_key]["msrvtt"]
-            f.write(f"- **{anchor_key}**: MSR-VTT={msrvtt_r1:.4f}, AEMS={aems_r1:.4f}\n")
-
 print(f"Summary table: {summary_path}")
 
 if gate_available and gate is not None:
