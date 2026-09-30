@@ -30,6 +30,8 @@ from src.config import (AEMS_MANIFEST_PATH, AEMS_VID_EMBEDDINGS_PATH, AEMS_AUDIO
                         AEMS_TEXT_CHUNKS_PATH_TEMPLATE,
                         AEMS_FUSION_WEIGHTS, AEMS_AUDIO_OOF_PATH, DEVICE, set_seeds)
 from src.models.gating_network import GatingNetwork
+from src.retrieval.bm25 import BM25PassageIndex
+from src.data.text_chunks import video_chunks
 from src.routing.query_router import BRANCHES, ChunkIndex, zscore
 from src.training.audio_adapter_fit import out_of_fold_audio
 from src.training.query_data import (load_records, questions, validation_split, encode_clip_text,
@@ -104,18 +106,21 @@ def branches(videos, audio_source):
     idx, gt = query_rows(rows, videos, DEVICE)
     q = q_emb[idx].to(DEVICE)
     index = chunk_index(videos)
-    sim_chunk = index.max_sim_batch(q)
+    bm25 = BM25PassageIndex([video_chunks(records[v]) for v in videos])
+    query_texts = [texts[i] for i in idx.tolist()]
     sims = [zscore(q @ stack_embeddings(vid_db, videos, DEVICE).T),
             zscore(q @ stack_embeddings(txt_db, videos, DEVICE).T),
-            zscore(sim_chunk),
-            zscore(q @ stack_embeddings(audio_source, videos, DEVICE).T)]
+            zscore(index.max_sim_batch(q)),
+            zscore(q @ stack_embeddings(audio_source, videos, DEVICE).T),
+            zscore(bm25.score_batch(query_texts).to(DEVICE))]
     return {"q": q, "gt": gt, "sims": sims}
 
 
 fit = branches(fit_vids, oof)       # out-of-fold audio: honest for training
 val = branches(val_vids, aud_db)    # deployed adapter never fitted on val
 print(f"[DATA] fit queries={fit['q'].shape[0]} val queries={val['q'].shape[0]}", flush=True)
-print(f"[TEXT ] passage-branch R@1: val={recall_metrics(val['sims'][2], val['gt'])['R@1']:.4f}", flush=True)
+print(f"[TEXT ] passage-branch R@1: val={recall_metrics(val['sims'][2], val['gt'])['R@1']:.4f}  "
+      f"bm25-branch R@1: val={recall_metrics(val['sims'][4], val['gt'])['R@1']:.4f}", flush=True)
 print(f"[AUDIO] audio-only R@1: fit(out-of-fold)={recall_metrics(fit['sims'][3], fit['gt'])['R@1']:.4f} "
       f"val={recall_metrics(val['sims'][3], val['gt'])['R@1']:.4f}", flush=True)
 
@@ -126,15 +131,16 @@ def fuse(w, sims):
 
 def fixed_baseline():
     """Best fixed weights on validation, as the bar the gate has to clear."""
-    grid = [round(x, 2) for x in np.arange(0, 1.01, 0.1)]
+    grid = [round(x, 2) for x in np.arange(0, 1.01, 0.2)]
     best, best_w = -1.0, None
     for wv in grid:
         for wt in grid:
             for wa in grid:
-                w = torch.tensor([[wv, wt, 1.0, wa]], device=DEVICE)
-                r1 = recall_metrics(fuse(w, val["sims"]), val["gt"])["R@1"]
-                if r1 > best:
-                    best, best_w = r1, (wv, wt, 1.0, wa)
+                for wb in grid:
+                    w = torch.tensor([[wv, wt, 1.0, wa, wb]], device=DEVICE)
+                    r1 = recall_metrics(fuse(w, val["sims"]), val["gt"])["R@1"]
+                    if r1 > best:
+                        best, best_w = r1, (wv, wt, 1.0, wa, wb)
     return best, best_w
 
 

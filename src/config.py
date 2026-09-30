@@ -73,7 +73,8 @@ AEMS_PER_CANDIDATE_GATE_PATH = "models/aems_per_candidate_gate_v1.pth"
 # combined with these weights when --fusion fixed is used. Tuned by grid search
 # on the validation split carved from train (never on test); re-tune whenever a
 # branch changes.
-AEMS_FUSION_WEIGHTS = {"visual": 0.3, "text": 1.0, "chunk": 1.0, "audio": 0.3}
+AEMS_FUSION_WEIGHTS = {"visual": 0.3, "text": 1.0, "chunk": 1.0, "audio": 0.3,
+                       "bm25": 0.4}
 AEMS_VIDEO_EMBEDDINGS_TRANSFORMER_PATH = "embeddings/aems_video_embeddings_transformer_v1.pt"
 
 

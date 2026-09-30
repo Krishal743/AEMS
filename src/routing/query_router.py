@@ -1,15 +1,18 @@
 """Route queries by type and compute multimodal similarities.
 
-There are four branches. Visual and caption embeddings are CLIP; the passage
+There are five branches. Visual and caption embeddings are CLIP; the passage
 branch keeps each video's text as separate CLIP-encoded chunks and scores a
 query against its best-matching passage (late interaction), which recovers the
 detail the mean-pooled caption vector averages away; audio embeddings are WavLM
-features
-projected into CLIP text space by the audio adapter. A query supplies up to two
-vectors: a CLIP query scored against the visual/caption matrices, and an audio
-query scored against the audio matrix (for text queries this is the same CLIP
-text vector; for an audio clip it is the adapter-projected WavLM embedding).
-Branches a query type cannot reach are left out and get zero weight.
+features projected into CLIP text space by the audio adapter; and the BM25
+branch matches the query's literal words against those same passages, which
+catches rare exact terms ("the Bellman equation") that dense embeddings blur.
+
+A query supplies up to three things: a CLIP query scored against the
+visual/caption matrices, an audio query scored against the audio matrix (for
+text queries this is the same CLIP text vector; for an audio clip it is the
+adapter-projected WavLM embedding), and the raw query text for BM25. Branches a
+query type cannot reach are left out and get zero weight.
 
 Fusion z-scores each branch's similarities per query over the gallery, so the
 branches are on a common scale, then takes a weighted sum. Weights are fixed
@@ -39,7 +42,7 @@ from src.models.audio_adapter import load_audio_adapter
 
 CROSS_ENCODER_MODEL = "cross-encoder/ms-marco-MiniLM-L6-v2"
 
-BRANCHES = ("visual", "text", "chunk", "audio")
+BRANCHES = ("visual", "text", "chunk", "audio", "bm25")
 
 
 def add_index_args(parser):
@@ -145,13 +148,16 @@ class SearchIndex(NamedTuple):
     text: torch.Tensor
     chunk: ChunkIndex
     audio: torch.Tensor
+    bm25: object = None          # BM25PassageIndex, or None when not built
 
 
-def load_search_index(video_path, audio_path, caption_path, chunk_path=None):
-    """Load the four branches; matrices are L2-normalized row-wise.
+def load_search_index(video_path, audio_path, caption_path, chunk_path=None,
+                      manifest_path=None):
+    """Load the branches; matrices are L2-normalized row-wise.
 
-    chunk_path may be None (the passage branch is then absent and gets zero
-    weight), which keeps older indexes usable.
+    chunk_path and manifest_path may be None, in which case the passage and
+    BM25 branches are absent and get zero weight — older indexes stay usable.
+    BM25 needs the manifest because it matches raw passage text, not vectors.
     """
     video_db = torch.load(video_path, weights_only=False)
     audio_db = torch.load(audio_path, weights_only=False)
@@ -177,7 +183,16 @@ def load_search_index(video_path, audio_path, caption_path, chunk_path=None):
             owner += [i] * e.shape[0]
         chunks = ChunkIndex(torch.cat(rows), torch.tensor(owner), len(video_ids))
 
-    return SearchIndex(video_ids, matrix(video_db), matrix(caption_db), chunks, matrix(audio_db))
+    bm25 = None
+    if manifest_path:
+        from src.data.metadata import load_metadata
+        from src.data.text_chunks import video_chunks
+        from src.retrieval.bm25 import BM25PassageIndex
+        records = {r["video_id"]: r for r in load_metadata(manifest_path)}
+        bm25 = BM25PassageIndex([video_chunks(records[v]) for v in video_ids])
+
+    return SearchIndex(video_ids, matrix(video_db), matrix(caption_db), chunks,
+                       matrix(audio_db), bm25)
 
 
 def load_gate(path, device):
@@ -205,13 +220,17 @@ def load_gate(path, device):
 
 
 def compute_modal_similarities(video_matrix, caption_matrix, audio_matrix,
-                               clip_query=None, audio_query=None, chunk_index=None):
-    """Return (sim_v, sim_t, sim_c, sim_a); a branch is None when unreachable."""
+                               clip_query=None, audio_query=None, chunk_index=None,
+                               bm25_index=None, query_text=None):
+    """Return one similarity vector per branch; None where the query can't reach it."""
     def score(q, m):
         return None if q is None else (q.to(m.device, m.dtype) @ m.T).squeeze(0)
     sim_c = None if (clip_query is None or chunk_index is None) else chunk_index.max_sim(clip_query)
+    sim_b = None
+    if bm25_index is not None and query_text:
+        sim_b = torch.tensor(bm25_index.score(query_text), dtype=torch.float32)
     return (score(clip_query, video_matrix), score(clip_query, caption_matrix),
-            sim_c, score(audio_query, audio_matrix))
+            sim_c, score(audio_query, audio_matrix), sim_b)
 
 
 def zscore(sim):
@@ -224,10 +243,11 @@ def fixed_weights(weights=None):
     return torch.tensor([float(weights[b]) for b in BRANCHES])
 
 
-def search(index, clip_query=None, audio_query=None, gate=None, weights=None):
+def search(index, clip_query=None, audio_query=None, gate=None, weights=None,
+           query_text=None):
     """Score a query against the index.
 
-    Returns (weights, sim_v, sim_t, sim_c, sim_a) on CPU, where sims are
+    Returns (weights, then one similarity vector per branch) on CPU, where sims are
     z-scored per branch and the fused score is sum(weights[i] * sim_i).
     Unavailable branches get all-zero similarities and zero weight, and the
     remaining weights are renormalized to sum to 1. With a gate and a CLIP
@@ -236,7 +256,8 @@ def search(index, clip_query=None, audio_query=None, gate=None, weights=None):
     """
     video_ids = index.video_ids
     sims = compute_modal_similarities(index.visual, index.text, index.audio,
-                                      clip_query, audio_query, index.chunk)
+                                      clip_query, audio_query, index.chunk,
+                                      index.bm25, query_text)
     mask = torch.tensor([s is not None for s in sims], dtype=torch.float32)
     if not mask.any():
         raise ValueError("query produced no embedding for any branch")

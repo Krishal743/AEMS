@@ -52,12 +52,13 @@ def gate():
 
 def test_similarities_use_the_matching_branch(index):
     clip_q, audio_q = unit(1, D), unit(1, D)
-    sim_v, sim_t, sim_c, sim_a = compute_modal_similarities(
+    sim_v, sim_t, sim_c, sim_a, sim_b = compute_modal_similarities(
         index.visual, index.text, index.audio, clip_q, audio_q, index.chunk)
     assert torch.allclose(sim_v, (clip_q @ index.visual.T).squeeze(0))
     assert torch.allclose(sim_t, (clip_q @ index.text.T).squeeze(0))
     assert torch.allclose(sim_a, (audio_q @ index.audio.T).squeeze(0))
     assert sim_c.shape == (N,)
+    assert sim_b is None                        # no BM25 index on this fixture
 
 
 def test_passage_branch_scores_the_best_chunk(index, chunks):
@@ -81,6 +82,7 @@ def test_missing_branch_is_left_out(index):
     sims = compute_modal_similarities(index.visual, index.text, index.audio,
                                       clip_query=unit(1, D), chunk_index=index.chunk)
     assert sims[3] is None                      # no audio query
+    assert sims[4] is None                      # no BM25 index
     assert all(s is not None for s in sims[:3])
 
 
@@ -101,34 +103,58 @@ def test_search_returns_zscored_similarities(index):
 
 def test_fixed_weights_are_used_and_renormalized(index):
     weights, *_ = search(index, clip_query=unit(1, D), audio_query=unit(1, D),
-                         weights={"visual": 1.0, "text": 2.0, "chunk": 1.0, "audio": 0.0})
-    assert torch.allclose(weights, torch.tensor([0.25, 0.5, 0.25, 0.0]))
+                         weights={"visual": 1.0, "text": 2.0, "chunk": 1.0, "audio": 0.0,
+                                  "bm25": 5.0})
+    # bm25 is unreachable without an index, so its weight is masked out entirely
+    assert torch.allclose(weights, torch.tensor([0.25, 0.5, 0.25, 0.0, 0.0]))
 
 
 def test_gate_mode_takes_weights_from_the_gate(index, gate):
     q = unit(1, D)
     weights, *_ = search(index, clip_query=q, audio_query=q, gate=gate)
     with torch.no_grad():
-        expected = gate(q).squeeze(0)
+        expected = gate(q).squeeze(0).clone()
+    expected[BRANCHES.index("bm25")] = 0.0      # unreachable: no BM25 index here
     assert torch.allclose(weights, expected / expected.sum(), atol=1e-6)
 
 
 def test_search_masks_unavailable_branches(index, gate):
-    weights, _, _, _, sim_a = search(index, clip_query=unit(1, D), gate=gate)
+    weights, *sims = search(index, clip_query=unit(1, D), gate=gate)
+    sim_a = sims[BRANCHES.index("audio")]
     assert weights[BRANCHES.index("audio")] == 0
     assert torch.isclose(weights.sum(), torch.tensor(1.0))
     assert torch.count_nonzero(sim_a) == 0
 
 
 def test_audio_only_query_reaches_only_the_audio_branch(index):
-    weights, sim_v, sim_t, sim_c, _ = search(index, audio_query=unit(1, D))
-    assert torch.equal(weights, torch.tensor([0.0, 0.0, 0.0, 1.0]))
-    assert all(torch.count_nonzero(s) == 0 for s in (sim_v, sim_t, sim_c))
+    weights, *sims = search(index, audio_query=unit(1, D))
+    expected = torch.zeros(NB)
+    expected[BRANCHES.index("audio")] = 1.0
+    assert torch.equal(weights, expected)
+    assert all(torch.count_nonzero(s) == 0
+               for i, s in enumerate(sims) if i != BRANCHES.index("audio"))
 
 
 def test_search_rejects_empty_query(index, gate):
     with pytest.raises(ValueError):
         search(index, gate=gate)
+
+
+def test_bm25_branch_scores_literal_word_overlap():
+    """The lexical branch must find the video whose passage shares a rare term."""
+    from src.retrieval.bm25 import BM25PassageIndex
+    bm25 = BM25PassageIndex([["a lecture on the bellman equation"],
+                             ["renaissance painting"],
+                             ["kneading bread dough"]])
+    idx = SearchIndex([f"v{i}" for i in range(3)], unit(3, D), unit(3, D),
+                      chunk_index(unit(3, CHUNKS, D)), unit(3, D), bm25)
+    _, *sims = search(idx, clip_query=unit(1, D), query_text="what is the bellman equation")
+    assert sims[BRANCHES.index("bm25")].argmax().item() == 0
+
+
+def test_bm25_branch_is_masked_without_query_text(index, gate):
+    weights, *_ = search(index, clip_query=unit(1, D), gate=gate)
+    assert weights[BRANCHES.index("bm25")] == 0
 
 
 def test_index_without_chunks_still_searches(index):

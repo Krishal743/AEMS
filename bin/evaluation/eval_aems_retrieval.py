@@ -2,6 +2,8 @@ import sys, json, torch, argparse, os, gc, time, random
 import clip
 import numpy as np
 from src.routing.query_router import load_gate, zscore, fixed_weights, ChunkIndex
+from src.retrieval.bm25 import BM25PassageIndex
+from src.data.text_chunks import video_chunks
 from src.evaluation.evaluate_retrieval import (ground_truth_ranks, hits_at_k,
                                                metrics_from_ranks, bootstrap_ci,
                                                paired_bootstrap)
@@ -165,6 +167,11 @@ for i, v in enumerate(common_vids):
 chunk_index = ChunkIndex(torch.cat(chunk_rows).to(DEVICE), torch.tensor(chunk_owner, device=DEVICE),
                          len(common_vids))
 sim_c = chunk_index.max_sim_batch(query_clip.float().to(DEVICE)).cpu()
+
+print("[SIM] Scoring the BM25 lexical branch...", flush=True)
+bm25_records = {r["video_id"]: r for r in load_metadata(args.manifest)}
+bm25_index = BM25PassageIndex([video_chunks(bm25_records[v]) for v in common_vids])
+sim_b = bm25_index.score_batch(queries)
 del chunk_rows, chunk_index, chunk_db
 gc.collect()
 
@@ -187,10 +194,8 @@ if gate is not None:
         with torch.no_grad():
             w = gate(q).cpu()
         # same fusion as the router: gate weights over per-query z-scored branches
-        gated = (w[:, 0:1] * zscore(sim_v[i:i+BATCH_SIZE]) +
-                 w[:, 1:2] * zscore(sim_t[i:i+BATCH_SIZE]) +
-                 w[:, 2:3] * zscore(sim_c[i:i+BATCH_SIZE]) +
-                 w[:, 3:4] * zscore(sim_a[i:i+BATCH_SIZE]))
+        gated = sum(w[:, b:b + 1] * zscore(sim[i:i+BATCH_SIZE])
+                    for b, sim in enumerate((sim_v, sim_t, sim_c, sim_a, sim_b)))
         sim_gated_list.append(gated)
     sim_gated = torch.cat(sim_gated_list, dim=0)
 
@@ -199,11 +204,12 @@ systems = {
     "text_only": sim_t,
     "passage_only": sim_c,
     "audio_only": sim_a,
-    "equal_fusion": (sim_v + sim_t + sim_c + sim_a) / 4,
+    "bm25_only": sim_b,
+    "equal_fusion": (sim_v + sim_t + sim_c + sim_a + sim_b) / 5,
 }
+branch_z = [zscore(s) for s in (sim_v, sim_t, sim_c, sim_a, sim_b)]
 fw = fixed_weights()
-systems["fixed_fusion"] = (fw[0] * zscore(sim_v) + fw[1] * zscore(sim_t)
-                           + fw[2] * zscore(sim_c) + fw[3] * zscore(sim_a))
+systems["fixed_fusion"] = sum(fw[i] * branch_z[i] for i in range(len(branch_z)))
 if sim_gated is not None:
     systems["adaptive_gating"] = sim_gated
 
@@ -218,9 +224,9 @@ if args.rerank != "none":
 
     if args.rerank == "gate":
         from src.rerank import per_candidate
-        model = per_candidate.load(args.per_candidate_gate, DEVICE, n_branches=4)
+        model = per_candidate.load(args.per_candidate_gate, DEVICE, n_branches=len(branch_z))
         feats = shortlist_utils.gather_branch_scores(
-            [zscore(s) for s in (sim_v, sim_t, sim_c, sim_a)], candidates.to(DEVICE))
+            [zscore(s) for s in (sim_v, sim_t, sim_c, sim_a, sim_b)], candidates.to(DEVICE))
         with torch.no_grad():
             rescored = per_candidate.score(model, query_clip.float().to(DEVICE), feats).cpu()
         systems["reranked_gate"] = shortlist_utils.rerank_scores_to_ranking(
@@ -262,6 +268,7 @@ results = {
         "audio": os.path.basename(AEMS_AUDIO_EMBEDDINGS_PATH),
         "text": f"aems_text_embeddings_{args.text_variant}_test.pt",
         "chunks": os.path.basename(AEMS_TEXT_CHUNKS_PATH_TEMPLATE.format(split="test")),
+        "bm25": "BM25 over the same passages (no checkpoint)",
         "gating_weights": os.path.basename(args.gate_weights) if gate_available else None,
     },
     "systems": {},
@@ -296,10 +303,10 @@ for name, sim in systems.items():
         sys_entry["w_v_std"] = float(w_all[:, 0].std())
         sys_entry["w_t_mean"] = float(w_all[:, 1].mean())
         sys_entry["w_t_std"] = float(w_all[:, 1].std())
-        sys_entry["w_c_mean"] = float(w_all[:, 2].mean())
-        sys_entry["w_c_std"] = float(w_all[:, 2].std())
-        sys_entry["w_a_mean"] = float(w_all[:, 3].mean())
-        sys_entry["w_a_std"] = float(w_all[:, 3].std())
+        from src.routing.query_router import BRANCHES
+        for b, name_b in enumerate(BRANCHES):
+            sys_entry[f"w_{name_b}_mean"] = float(w_all[:, b].mean())
+            sys_entry[f"w_{name_b}_std"] = float(w_all[:, b].std())
 
     results["systems"][name] = sys_entry
 
@@ -317,11 +324,10 @@ for name, sim in systems.items():
 if gate_available and gate is not None:
     with torch.no_grad():
         w_all = gate(query_clip.float().to(DEVICE)).cpu()
+    from src.routing.query_router import BRANCHES as _BRANCHES
     print(f"\n  Gate weights (all queries):")
-    print(f"    w_v: {w_all[:, 0].mean():.4f} ± {w_all[:, 0].std():.4f}")
-    print(f"    w_t: {w_all[:, 1].mean():.4f} ± {w_all[:, 1].std():.4f}")
-    print(f"    w_c: {w_all[:, 2].mean():.4f} ± {w_all[:, 2].std():.4f}")
-    print(f"    w_a: {w_all[:, 3].mean():.4f} ± {w_all[:, 3].std():.4f}")
+    for b, name_b in enumerate(_BRANCHES):
+        print(f"    w_{name_b:<7}: {w_all[:, b].mean():.4f} ± {w_all[:, b].std():.4f}")
 
 print("\n" + "-" * 70)
 print("CATEGORY-STRATIFIED R@1")
@@ -394,14 +400,9 @@ print(f"Summary table: {summary_path}")
 
 if gate_available and gate is not None:
     weight_summary = {
-        "w_c_mean": float(w_all[:, 2].mean()),
-        "w_c_std": float(w_all[:, 2].std()),
-        "w_v_mean": float(w_all[:, 0].mean()),
-        "w_v_std": float(w_all[:, 0].std()),
-        "w_t_mean": float(w_all[:, 1].mean()),
-        "w_t_std": float(w_all[:, 1].std()),
-        "w_a_mean": float(w_all[:, 3].mean()),
-        "w_a_std": float(w_all[:, 3].std()),
+        **{f"w_{n}_{stat}": float(getattr(w_all[:, i], stat)())
+           for i, n in enumerate(__import__("src.routing.query_router", fromlist=["BRANCHES"]).BRANCHES)
+           for stat in ("mean", "std")},
     }
     weight_path = os.path.join(OUTPUT_DIR, "gating_weights_summary.json")
     with open(weight_path, "w") as f:

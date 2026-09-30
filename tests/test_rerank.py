@@ -116,7 +116,8 @@ def test_per_candidate_load_rejects_a_mismatched_branch_count(tmp_path):
 
 def test_fuse_accepts_per_query_and_shared_weights():
     sims = branch_sims(n_queries=3)
-    shared = stage1.fuse(torch.tensor([1.0, 0.0, 0.0, 0.0]), sims)
+    one_hot = torch.zeros(NB); one_hot[0] = 1.0
+    shared = stage1.fuse(one_hot, sims)
     assert torch.allclose(shared, sims[0])
     per_query = stage1.fuse(torch.ones(3, NB), sims)
     assert torch.allclose(per_query, sum(sims))
