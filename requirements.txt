@@ -1,11 +1,20 @@
-torch>=1.13.0
-git+https://github.com/openai/CLIP.git
-laion_clap
+# Core retrieval pipeline (everything under src/, bin/ and pipeline/)
+torch>=2.0.0
+torchaudio>=2.5.0                          # WavLM-Large: the audio branch
+git+https://github.com/openai/CLIP.git     # CLIP ViT-B/32: visual, caption and passage branches
+transformers>=5.0.0                        # cross-encoder reranking (--rerank cross)
+numpy>=1.20.0
+scikit-learn>=1.0.0
 librosa>=0.9.0
 soundfile>=0.12.0
-moviepy>=1.0.0
 Pillow>=9.0.0
+opencv-python>=4.5.0
+moviepy>=1.0.0                             # frame/audio extraction
 tqdm>=4.60.0
 huggingface_hub>=0.15.0
-opencv-python>=4.5.0
-numpy>=1.20.0
+pytest>=7.0.0
+
+# experiments/ only — CLAP was the previous audio branch and is no longer in the
+# search path (see docs/RESULTS_2026-09-24.md). Needed to re-run experiments/ablations
+# and experiments/audio_alignment, not to run or evaluate the system.
+laion_clap

@@ -6,6 +6,7 @@ from src.evaluation.evaluate_retrieval import (ground_truth_ranks, hits_at_k,
                                                metrics_from_ranks, bootstrap_ci,
                                                paired_bootstrap)
 from src.config import (AEMS_MANIFEST_PATH, AEMS_VID_EMBEDDINGS_PATH, AEMS_AUDIO_EMBEDDINGS_PATH,
+                         AEMS_PER_CANDIDATE_GATE_PATH,
                          AEMS_VIDEO_EMBEDDINGS_TRANSFORMER_PATH, AEMS_GATING_WEIGHTS_PATH,
                          AEMS_TEXT_EMBEDDINGS_DESC_PATH_TEMPLATE,
                          AEMS_TEXT_EMBEDDINGS_TRANS_PATH_TEMPLATE,
@@ -28,6 +29,13 @@ parser.add_argument("--seed", type=int, default=42)
 parser.add_argument("--bootstrap", action="store_true", help="Compute bootstrap confidence intervals")
 parser.add_argument("--bootstrap-iters", type=int, default=1000)
 parser.add_argument("--num-queries", type=int, default=None, help="Limit queries for debugging")
+parser.add_argument("--rerank", choices=["none", "gate", "cross"], default="none",
+                    help="also evaluate the two-stage system with this stage-2 reranker")
+parser.add_argument("--rerank-top-k", type=int, default=50, help="shortlist depth to rerank")
+parser.add_argument("--rerank-passages", type=int, default=3)
+parser.add_argument("--rerank-alpha", type=float, default=0.25)
+parser.add_argument("--cross-encoder", default="cross-encoder/ms-marco-MiniLM-L6-v2")
+parser.add_argument("--per-candidate-gate", default=AEMS_PER_CANDIDATE_GATE_PATH)
 args = parser.parse_args()
 
 set_seeds(args.seed)
@@ -198,6 +206,42 @@ systems["fixed_fusion"] = (fw[0] * zscore(sim_v) + fw[1] * zscore(sim_t)
                            + fw[2] * zscore(sim_c) + fw[3] * zscore(sim_a))
 if sim_gated is not None:
     systems["adaptive_gating"] = sim_gated
+
+if args.rerank != "none":
+    # Stage 2 rescores only the shortlist of the best stage-1 system available.
+    from src.rerank import stage1 as shortlist_utils
+    stage1_scores = systems.get("adaptive_gating", systems["fixed_fusion"])
+    candidates = shortlist_utils.top_k_candidates(stage1_scores, args.rerank_top_k)
+    gt_pos = torch.tensor([common_vids.index(v) for v in query_video_ids])
+    print(f"[RERANK] {args.rerank}: shortlist K={args.rerank_top_k}, "
+          f"stage-1 recall@K={shortlist_utils.candidate_recall(candidates, gt_pos):.4f}", flush=True)
+
+    if args.rerank == "gate":
+        from src.rerank import per_candidate
+        model = per_candidate.load(args.per_candidate_gate, DEVICE, n_branches=4)
+        feats = shortlist_utils.gather_branch_scores(
+            [zscore(s) for s in (sim_v, sim_t, sim_c, sim_a)], candidates.to(DEVICE))
+        with torch.no_grad():
+            rescored = per_candidate.score(model, query_clip.float().to(DEVICE), feats).cpu()
+        systems["reranked_gate"] = shortlist_utils.rerank_scores_to_ranking(
+            stage1_scores, candidates, rescored)
+    else:
+        from src.rerank import cross_encoder
+        records = {r["video_id"]: r for r in load_metadata(args.manifest)}
+        chunk_db_rr = torch.load(AEMS_TEXT_CHUNKS_PATH_TEMPLATE.format(split="test"),
+                                 weights_only=False)
+        store = cross_encoder.PassageStore(records, common_vids, chunk_db_rr, DEVICE)
+        ce_model, tokenizer = cross_encoder.load_cross_encoder(args.cross_encoder, DEVICE)
+        rescored = cross_encoder.rerank(ce_model, tokenizer, queries,
+                                        query_clip.float().to(DEVICE), candidates.to(DEVICE),
+                                        store, common_vids, n_passages=args.rerank_passages,
+                                        device=DEVICE).cpu()
+        z = (rescored - rescored.mean(1, keepdim=True)) / (rescored.std(1, keepdim=True) + 1e-6)
+        base = stage1_scores.gather(1, candidates)
+        systems["reranked_cross"] = shortlist_utils.rerank_scores_to_ranking(
+            stage1_scores, candidates, base + args.rerank_alpha * z)
+        del ce_model, tokenizer, store
+        torch.cuda.empty_cache()
 
 
 REFERENCE_SYSTEM = "text_only"   # what headline gains are quoted against

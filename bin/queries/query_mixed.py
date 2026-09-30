@@ -19,7 +19,8 @@ from src.explainability.explain_retrieval import (
     format_explanation,
 )
 from src.routing.query_router import (
-    add_index_args, load_search_index, load_fusion_gate,
+    add_index_args, check_rerank_supported, rerank_and_report,
+    load_search_index, load_fusion_gate,
     encode_text_query, encode_image_query, search,
 )
 
@@ -35,6 +36,7 @@ def main():
 
     if not args.text and not args.image:
         parser.error("provide at least one of --text or --image")
+    check_rerank_supported(parser, args, query_text=args.text)
 
     index = load_search_index(args.video_embeds, args.audio_embeds, args.caption_embeds,
                               args.chunk_embeds)
@@ -55,6 +57,7 @@ def main():
     audio_query = text_query
 
     w, *sims = search(index, clip_query=clip_query, audio_query=audio_query, gate=gate)
+    rerank_and_report(args, w, sims, index, clip_query, query_text=args.text, device=DEVICE)
     contributions = explain_modality_contributions(w, sims, index.video_ids, top_k=args.top_k)
     print(format_explanation(contributions, explain_gating_decision(w), top_k=args.top_k))
 

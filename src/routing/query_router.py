@@ -24,6 +24,7 @@ import torch.nn.functional as F
 import clip
 
 from src.config import (
+    AEMS_MANIFEST_PATH,
     AEMS_VID_EMBEDDINGS_PATH,
     AEMS_AUDIO_EMBEDDINGS_PATH,
     AEMS_TEXT_EMBEDDINGS_FUSED_PATH_TEMPLATE,
@@ -297,3 +298,38 @@ def apply_rerank(args, weights, sims, index, clip_query=None, query_text=None,
     base = scores.gather(1, candidates)
     return shortlist.rerank_scores_to_ranking(scores, candidates,
                                               base + args.rerank_alpha * z).squeeze(0)
+
+
+def check_rerank_supported(parser, args, query_text):
+    """Reject --rerank cross when there is no query text to read passages against.
+
+    The cross-encoder scores (query text, passage text) pairs, so an image- or
+    video-only query cannot use it. Failing loudly beats silently ignoring the
+    flag and reporting unreranked results as if they were reranked.
+    """
+    if args.rerank == "cross" and not query_text:
+        parser.error("--rerank cross needs query text: the cross-encoder reads the query "
+                     "against transcript passages. Use --rerank gate for image/video queries.")
+
+
+def rerank_and_report(args, weights, sims, index, clip_query, query_text=None,
+                      device="cpu", manifest_path=None):
+    """Run stage 2 if requested and print the reranked ordering."""
+    if args.rerank == "none":
+        return None
+
+    records, chunk_db = None, None
+    if args.rerank == "cross":
+        from src.data.metadata import load_metadata
+        records = {r["video_id"]: r for r in load_metadata(manifest_path or AEMS_MANIFEST_PATH)}
+        chunk_db = torch.load(args.chunk_embeds, weights_only=False)
+
+    ranking = apply_rerank(args, weights, sims, index, clip_query=clip_query.cpu(),
+                           query_text=query_text, records=records, chunk_db=chunk_db,
+                           device=device)
+    order = torch.argsort(ranking, descending=True)[:args.top_k]
+    print(f"\nReranked top-{args.top_k} (--rerank {args.rerank}, "
+          f"shortlist {args.rerank_top_k}):")
+    for rank, idx in enumerate(order.tolist(), 1):
+        print(f"  {rank}. {index.video_ids[idx]}  score={ranking[idx]:.4f}")
+    return ranking
