@@ -120,3 +120,56 @@ def test_fuse_accepts_per_query_and_shared_weights():
     assert torch.allclose(shared, sims[0])
     per_query = stage1.fuse(torch.ones(3, NB), sims)
     assert torch.allclose(per_query, sum(sims))
+
+
+class _FakeStore:
+    """Minimal PassageStore stand-in: N videos, fixed passages each."""
+
+    def __init__(self, n_videos=6, n_chunks=4):
+        self.texts = [[f"v{v} passage {c}" for c in range(n_chunks)] for v in range(n_videos)]
+        self.n_chunks = n_chunks
+
+    def top_passages(self, query_emb, candidates, n_passages):
+        b, k = candidates.shape
+        return torch.zeros(b, k, n_passages, dtype=torch.long)
+
+
+def test_hard_negatives_never_include_the_positive():
+    from src.rerank import finetune
+    candidates = torch.tensor([[3, 1, 2, 0], [5, 4, 1, 2]])
+    gt = torch.tensor([2, 5])
+    examples = finetune.build_examples(torch.randn(2, D), candidates, gt, _FakeStore(),
+                                       n_negatives=3)
+    assert len(examples) == 2
+    for ex, truth in zip(examples, gt.tolist()):
+        assert ex["positive"][0] == truth
+        assert all(video != truth for video, _ in ex["negatives"])
+
+
+def test_queries_whose_answer_is_outside_the_shortlist_are_dropped():
+    from src.rerank import finetune
+    candidates = torch.tensor([[3, 1], [5, 4]])
+    gt = torch.tensor([9, 5])            # first query's answer is not shortlisted
+    examples = finetune.build_examples(torch.randn(2, D), candidates, gt, _FakeStore(),
+                                       n_negatives=1)
+    assert len(examples) == 1
+    assert examples[0]["query_row"] == 1
+
+
+def test_example_to_pairs_puts_the_positive_first():
+    from src.rerank import finetune
+    store = _FakeStore()
+    example = {"query_row": 0, "positive": (2, 1), "negatives": [(3, 0), (4, 2)]}
+    texts_a, texts_b = finetune.example_to_pairs(example, ["why does it rain?"], store)
+    assert texts_a == ["why does it rain?"] * 3
+    assert texts_b[0] == store.texts[2][1]
+    assert texts_b[1:] == [store.texts[3][0], store.texts[4][2]]
+
+
+def test_shortlist_for_split_reports_recall():
+    from src.rerank import finetune
+    scores = torch.tensor([[0.1, 0.9, 0.5], [0.8, 0.2, 0.3]])
+    # top-2 is [1, 2] for query 0 and [0, 2] for query 1
+    candidates, recall = finetune.shortlist_for_split(scores, torch.tensor([1, 1]), 2)
+    assert candidates.shape == (2, 2)
+    assert recall == 0.5      # query 0 shortlists its answer, query 1 does not
