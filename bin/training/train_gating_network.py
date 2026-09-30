@@ -31,7 +31,7 @@ from src.config import (AEMS_MANIFEST_PATH, AEMS_VID_EMBEDDINGS_PATH, AEMS_AUDIO
                         AEMS_FUSION_WEIGHTS, AEMS_AUDIO_OOF_PATH, DEVICE, set_seeds)
 from src.models.gating_network import GatingNetwork
 from src.retrieval.bm25 import BM25PassageIndex
-from src.data.text_chunks import video_chunks
+from src.data.text_chunks import lexical_fields
 from src.routing.query_router import BRANCHES, ChunkIndex, zscore
 from src.training.audio_adapter_fit import out_of_fold_audio
 from src.training.query_data import (load_records, questions, validation_split, encode_clip_text,
@@ -106,7 +106,7 @@ def branches(videos, audio_source):
     idx, gt = query_rows(rows, videos, DEVICE)
     q = q_emb[idx].to(DEVICE)
     index = chunk_index(videos)
-    bm25 = BM25PassageIndex([video_chunks(records[v]) for v in videos])
+    bm25 = BM25PassageIndex([lexical_fields(records[v]) for v in videos])
     query_texts = [texts[i] for i in idx.tolist()]
     sims = [zscore(q @ stack_embeddings(vid_db, videos, DEVICE).T),
             zscore(q @ stack_embeddings(txt_db, videos, DEVICE).T),

@@ -186,10 +186,10 @@ def load_search_index(video_path, audio_path, caption_path, chunk_path=None,
     bm25 = None
     if manifest_path:
         from src.data.metadata import load_metadata
-        from src.data.text_chunks import video_chunks
+        from src.data.text_chunks import lexical_fields
         from src.retrieval.bm25 import BM25PassageIndex
         records = {r["video_id"]: r for r in load_metadata(manifest_path)}
-        bm25 = BM25PassageIndex([video_chunks(records[v]) for v in video_ids])
+        bm25 = BM25PassageIndex([lexical_fields(records[v]) for v in video_ids])
 
     return SearchIndex(video_ids, matrix(video_db), matrix(caption_db), chunks,
                        matrix(audio_db), bm25)

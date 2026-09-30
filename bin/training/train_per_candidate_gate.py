@@ -24,6 +24,8 @@ from src.config import (AEMS_MANIFEST_PATH, AEMS_VID_EMBEDDINGS_PATH, AEMS_AUDIO
 from src.evaluation.evaluate_retrieval import ground_truth_ranks, metrics_from_ranks
 from src.rerank import per_candidate, stage1
 from src.routing.query_router import BRANCHES, ChunkIndex, fixed_weights, zscore
+from src.retrieval.bm25 import BM25PassageIndex
+from src.data.text_chunks import lexical_fields
 from src.training.audio_adapter_fit import out_of_fold_audio
 from src.training.query_data import (load_records, questions, validation_split, encode_clip_text,
                                      flatten_questions, stack_embeddings, query_rows)
@@ -76,10 +78,13 @@ def branch_sims(vids, audio_source):
         chunk_rows.append(e)
         owner += [i] * e.shape[0]
     chunks = ChunkIndex(torch.cat(chunk_rows).to(DEVICE), torch.tensor(owner, device=DEVICE), len(vids))
+    bm25 = BM25PassageIndex([lexical_fields(records[v]) for v in vids])
+    query_texts = [texts[i] for i in idx.tolist()]
     sims = [zscore(q @ stack_embeddings(vid_db, vids, DEVICE).T),
             zscore(q @ stack_embeddings(txt_db, vids, DEVICE).T),
             zscore(chunks.max_sim_batch(q)),
-            zscore(q @ stack_embeddings(audio_source, vids, DEVICE).T)]
+            zscore(q @ stack_embeddings(audio_source, vids, DEVICE).T),
+            zscore(bm25.score_batch(query_texts).to(DEVICE))]
     return {"q": q, "gt": gt, "sims": sims}
 
 

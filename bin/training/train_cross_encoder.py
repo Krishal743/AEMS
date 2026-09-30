@@ -26,6 +26,8 @@ from src.config import (AEMS_MANIFEST_PATH, AEMS_VID_EMBEDDINGS_PATH, AEMS_AUDIO
 from src.evaluation.evaluate_retrieval import ground_truth_ranks, metrics_from_ranks
 from src.rerank import cross_encoder, finetune, stage1
 from src.routing.query_router import ChunkIndex, load_gate, zscore
+from src.retrieval.bm25 import BM25PassageIndex
+from src.data.text_chunks import lexical_fields
 from src.training.query_data import (load_records, questions, validation_split, encode_clip_text,
                                      flatten_questions, stack_embeddings, query_rows)
 
@@ -43,6 +45,11 @@ parser.add_argument("--max-length", type=int, default=256)
 parser.add_argument("--eval-passages", type=int, default=3)
 parser.add_argument("--eval-alpha", type=float, default=0.25)
 parser.add_argument("--evals-per-epoch", type=int, default=3)
+parser.add_argument("--eval-queries", type=int, default=1500,
+                    help="validation queries used for mid-training selection; scoring the "
+                         "full split at K=100 costs minutes per eval. The same fixed subset "
+                         "is used for every decision, and the winner is re-scored on the "
+                         "full split at the end.")
 parser.add_argument("--max-queries", type=int, default=None, help="cap training queries (debug)")
 parser.add_argument("--val-frac", type=float, default=0.15)
 parser.add_argument("--seed", type=int, default=42)
@@ -78,10 +85,12 @@ def build_split(vids):
         owner += [i] * e.shape[0]
     chunks = ChunkIndex(torch.cat(chunk_rows).to(DEVICE), torch.tensor(owner, device=DEVICE), len(vids))
 
+    bm25 = BM25PassageIndex([lexical_fields(records[v]) for v in vids])
     sims = [zscore(q @ stack_embeddings(vid_db, vids, DEVICE).T),
             zscore(q @ stack_embeddings(txt_db, vids, DEVICE).T),
             zscore(chunks.max_sim_batch(q)),
-            zscore(q @ stack_embeddings(aud_db, vids, DEVICE).T)]
+            zscore(q @ stack_embeddings(aud_db, vids, DEVICE).T),
+            zscore(bm25.score_batch(query_texts).to(DEVICE))]
     with torch.no_grad():
         w = gate(q)
     scores = stage1.fuse(w, sims)
@@ -100,11 +109,13 @@ print(f"[DATA] shortlist K={args.top_k}: recall fit={fit_recall:.4f} val={val_re
 examples = finetune.build_examples(fit["q"], fit_candidates, fit["gt"], fit["store"],
                                    n_negatives=args.negatives,
                                    generator=torch.Generator().manual_seed(args.seed))
+unreachable = fit["gt"].numel() - len(examples)
 if args.max_queries:
     examples = examples[:args.max_queries]
 print(f"[DATA] {len(examples)} training queries "
       f"({len(examples) * (args.negatives + 1)} pairs per epoch); "
-      f"{fit['gt'].numel() - len(examples)} dropped as unreachable by reranking", flush=True)
+      f"{unreachable} of {fit['gt'].numel()} queries dropped because the answer is outside "
+      f"the shortlist and reranking cannot reach it", flush=True)
 
 # ---------------------------------------------------------------- model
 model, tokenizer = cross_encoder.load_cross_encoder(args.base_model, DEVICE, dtype=torch.float32)
@@ -114,22 +125,32 @@ scheduler = torch.optim.lr_scheduler.OneCycleLR(optimiser, max_lr=args.lr, total
                                                 pct_start=0.1)
 
 
-def evaluate():
-    """Validation R@1 of the full two-stage pipeline with the current weights."""
+eval_subset = torch.arange(val["gt"].numel())
+if args.eval_queries and args.eval_queries < val["gt"].numel():
+    eval_subset = torch.randperm(val["gt"].numel(),
+                                 generator=torch.Generator().manual_seed(args.seed)
+                                 )[:args.eval_queries].sort().values
+
+
+def evaluate(subset=None):
+    """R@1 of the full two-stage pipeline on validation with the current weights."""
+    rows = eval_subset if subset is None else subset
     model.eval()
-    scores = cross_encoder.rerank(model, tokenizer, val["texts"], val["q"], val_candidates,
+    scores = cross_encoder.rerank(model, tokenizer, [val["texts"][i] for i in rows.tolist()],
+                                  val["q"][rows], val_candidates[rows],
                                   val["store"], val["vids"], n_passages=args.eval_passages,
                                   max_length=args.max_length, device=DEVICE)
     z = (scores - scores.mean(1, keepdim=True)) / (scores.std(1, keepdim=True) + 1e-6)
-    base = val["scores"].gather(1, val_candidates)
-    full = stage1.rerank_scores_to_ranking(val["scores"], val_candidates,
+    base = val["scores"][rows].gather(1, val_candidates[rows])
+    full = stage1.rerank_scores_to_ranking(val["scores"][rows], val_candidates[rows],
                                            base + args.eval_alpha * z)
     model.train()
-    return metrics_from_ranks(ground_truth_ranks(full, val["gt"]))
+    return metrics_from_ranks(ground_truth_ranks(full, val["gt"][rows]))
 
 
 baseline = evaluate()
-print(f"[BASELINE] off-the-shelf {args.base_model}: val R@1={baseline['R@1']:.4f}", flush=True)
+print(f"[BASELINE] off-the-shelf {args.base_model}: val R@1={baseline['R@1']:.4f} "
+      f"on {eval_subset.numel()} selection queries", flush=True)
 
 # ---------------------------------------------------------------- train
 rng = np.random.default_rng(args.seed)
@@ -173,20 +194,27 @@ for epoch in range(args.epochs):
                 best_r1, best_tag = metrics["R@1"], f"epoch {epoch + 1} step {seen}"
                 best_state = {k: v.detach().cpu().clone() for k, v in model.state_dict().items()}
 
-print(f"\n[BEST] {best_tag}: val R@1={best_r1:.4f} "
+print(f"\n[BEST] {best_tag}: selection val R@1={best_r1:.4f} "
       f"(off-the-shelf was {baseline['R@1']:.4f})")
+
+full_rows = torch.arange(val["gt"].numel())
+if best_state is not None:
+    model.load_state_dict(best_state)
+full_val = evaluate(full_rows)
+print(f"[FULL VAL] {'fine-tuned' if best_state is not None else 'off-the-shelf'}: "
+      f"R@1={full_val['R@1']:.4f} R@10={full_val['R@10']:.4f} MRR={full_val['MRR']:.4f}")
 
 if best_state is None:
     print("[WARN] fine-tuning never beat the off-the-shelf model on validation. "
           "Keeping the off-the-shelf reranker; nothing saved.")
 else:
-    model.load_state_dict(best_state)
     os.makedirs(args.output, exist_ok=True)
     model.save_pretrained(args.output)
     tokenizer.save_pretrained(args.output)
     print(f"[SAVE] fine-tuned cross-encoder -> {args.output}")
 
 summary = {"base_model": args.base_model, "val_R@1_off_the_shelf": baseline["R@1"],
+           "full_val_metrics": full_val,
            "val_R@1_finetuned": best_r1, "best_checkpoint": best_tag,
            "improved": best_state is not None, "top_k": args.top_k,
            "negatives": args.negatives, "epochs": args.epochs, "lr": args.lr,

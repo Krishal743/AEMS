@@ -3,7 +3,7 @@ import clip
 import numpy as np
 from src.routing.query_router import load_gate, zscore, fixed_weights, ChunkIndex
 from src.retrieval.bm25 import BM25PassageIndex
-from src.data.text_chunks import video_chunks
+from src.data.text_chunks import lexical_fields
 from src.evaluation.evaluate_retrieval import (ground_truth_ranks, hits_at_k,
                                                metrics_from_ranks, bootstrap_ci,
                                                paired_bootstrap)
@@ -170,7 +170,7 @@ sim_c = chunk_index.max_sim_batch(query_clip.float().to(DEVICE)).cpu()
 
 print("[SIM] Scoring the BM25 lexical branch...", flush=True)
 bm25_records = {r["video_id"]: r for r in load_metadata(args.manifest)}
-bm25_index = BM25PassageIndex([video_chunks(bm25_records[v]) for v in common_vids])
+bm25_index = BM25PassageIndex([lexical_fields(bm25_records[v]) for v in common_vids])
 sim_b = bm25_index.score_batch(queries)
 del chunk_rows, chunk_index, chunk_db
 gc.collect()

@@ -12,10 +12,16 @@ from src.routing.query_router import zscore
 
 
 def fuse(weights, sims):
-    """weights: (n_queries, n_branches) or (n_branches,); sims: list of (n_queries, n_videos)."""
+    """weights: (n_queries, n_branches) or (n_branches,); sims: list of (n_queries, n_videos).
+
+    The counts must match: silently fusing 5 weights over 4 branches would drop
+    one and misassign the rest, which is invisible in the output.
+    """
     w = torch.as_tensor(weights)
     if w.dim() == 1:
         w = w.view(1, -1)
+    if w.shape[1] != len(sims):
+        raise ValueError(f"{w.shape[1]} weights but {len(sims)} branch score matrices")
     return sum(w[:, i:i + 1].to(sims[i].device) * sims[i] for i in range(len(sims)))
 
 

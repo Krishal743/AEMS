@@ -42,3 +42,22 @@ def video_chunks(record, max_chunks=MAX_CHUNKS):
         title = (record.get("youtube_title") or "").strip()
         parts = [title] if title else []
     return parts[:max_chunks]
+
+
+def lexical_fields(record, max_chunks=96):
+    """Text for the BM25 branch: the passages plus the metadata fields.
+
+    The dense branches only see description + transcript, because CLIP's 77-token
+    window makes extra text expensive. BM25 has no such limit, and titles, YouTube
+    descriptions and tags carry exactly the rare proper nouns lexical matching is
+    good at. Measured on validation: R@1 0.561 -> 0.569 over passages alone.
+    """
+    parts = video_chunks(record, max_chunks=max_chunks)
+    for key in ("youtube_title", "youtube_description"):
+        value = (record.get(key) or "").strip()
+        if value:
+            parts += split_into_chunks(value)
+    tags = record.get("youtube_tags") or []
+    if tags:
+        parts.append(" ".join(str(t) for t in tags))
+    return parts[:max_chunks]

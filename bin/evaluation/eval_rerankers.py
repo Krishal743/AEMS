@@ -24,6 +24,8 @@ from src.evaluation.evaluate_retrieval import (ground_truth_ranks, hits_at_k, me
                                                bootstrap_ci, paired_bootstrap)
 from src.rerank import cross_encoder, per_candidate, stage1
 from src.routing.query_router import BRANCHES, ChunkIndex, load_gate, zscore
+from src.retrieval.bm25 import BM25PassageIndex
+from src.data.text_chunks import lexical_fields
 from src.training.query_data import (load_records, questions, validation_split, encode_clip_text,
                                      flatten_questions, stack_embeddings, query_rows)
 
@@ -93,10 +95,12 @@ def build(split_name):
         owner += [i] * e.shape[0]
     chunks = ChunkIndex(torch.cat(chunk_rows).to(DEVICE), torch.tensor(owner, device=DEVICE), len(vids))
 
+    bm25 = BM25PassageIndex([lexical_fields(records[split][v]) for v in vids])
     sims = [zscore(q @ stack_embeddings(vid_db, vids, DEVICE).T),
             zscore(q @ stack_embeddings(txt_db[split], vids, DEVICE).T),
             zscore(chunks.max_sim_batch(q)),
-            zscore(q @ stack_embeddings(aud_db, vids, DEVICE).T)]
+            zscore(q @ stack_embeddings(aud_db, vids, DEVICE).T),
+            zscore(bm25.score_batch(query_texts).to(DEVICE))]
     with torch.no_grad():
         w = gate(q)
     scores = stage1.fuse(w, sims)
@@ -179,8 +183,14 @@ def report(tag, split_name, full_scores, extra=None, latency_ms=None):
 
 
 # ---------------------------------------------------------------- option 1
+pc_model = None
 if os.path.exists(args.per_candidate_gate):
-    model = per_candidate.load(args.per_candidate_gate, DEVICE, n_branches=len(BRANCHES))
+    try:
+        pc_model = per_candidate.load(args.per_candidate_gate, DEVICE, n_branches=len(BRANCHES))
+    except RuntimeError as exc:
+        print(f"[skip] per-candidate reranker: {exc}", flush=True)
+if pc_model is not None:
+    model = pc_model
     best = (-1.0, None)
     for k in args.top_k:
         d = data["val"]

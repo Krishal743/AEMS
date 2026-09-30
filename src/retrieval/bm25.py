@@ -16,7 +16,9 @@ import re
 from collections import Counter
 
 TOKEN = re.compile(r"[a-z0-9]+")
-K1 = 1.5
+# Tuned on the validation split (k1 in {0.9, 1.5, 2.0} x b in {0.4, 0.75});
+# k1=0.9 b=0.75 was best, though the spread across the grid was under a point.
+K1 = 0.9
 B = 0.75
 
 

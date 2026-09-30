@@ -52,13 +52,23 @@ class PassageStore:
         self.embeddings = padded.to(device)
         self.mask = mask.to(device)
 
-    def top_passages(self, query_emb, candidates, n_passages):
-        """(n_queries, k, n_passages) chunk indices, best CLIP match first."""
-        emb = self.embeddings[candidates]                       # (b, k, max_chunks, 512)
-        mask = self.mask[candidates]                            # (b, k, max_chunks)
-        sims = torch.einsum("bd,bkcd->bkc", query_emb.to(emb.dtype), emb)
-        sims = sims.masked_fill(~mask, -1e4)
-        return sims.topk(min(n_passages, sims.shape[-1]), dim=-1).indices
+    def top_passages(self, query_emb, candidates, n_passages, batch_size=32):
+        """(n_queries, k, n_passages) chunk indices, best CLIP match first.
+
+        Batched over queries: gathering embeddings for every query at once costs
+        n_queries x k x max_chunks x 512 floats, which is tens of GB for a full
+        split. Callers should not have to know that.
+        """
+        out = []
+        for start in range(0, candidates.shape[0], batch_size):
+            rows = candidates[start:start + batch_size]
+            emb = self.embeddings[rows]                         # (b, k, max_chunks, 512)
+            mask = self.mask[rows]                              # (b, k, max_chunks)
+            sims = torch.einsum("bd,bkcd->bkc",
+                                query_emb[start:start + batch_size].to(emb.dtype), emb)
+            sims = sims.masked_fill(~mask, -1e4)
+            out.append(sims.topk(min(n_passages, sims.shape[-1]), dim=-1).indices)
+        return torch.cat(out)
 
 
 @torch.no_grad()
