@@ -33,7 +33,9 @@ parser = argparse.ArgumentParser(description="Compare stage-2 rerankers")
 parser.add_argument("--manifest", default=AEMS_MANIFEST_PATH)
 parser.add_argument("--gate-weights", default=AEMS_GATING_WEIGHTS_PATH)
 parser.add_argument("--per-candidate-gate", default=AEMS_PER_CANDIDATE_GATE_PATH)
-parser.add_argument("--models", nargs="+", default=["minilm"], choices=["minilm", "bge"])
+parser.add_argument("--models", nargs="+", default=["minilm"],
+                    help="minilm, bge, or any local path / HuggingFace id of a cross-encoder "
+                         "(e.g. models/aems_cross_encoder_v1 after fine-tuning)")
 parser.add_argument("--top-k", type=int, nargs="+", default=[20, 50, 100],
                     help="shortlist depths to try on validation")
 parser.add_argument("--passages", type=int, nargs="+", default=[1, 3],
@@ -48,6 +50,11 @@ args = parser.parse_args()
 set_seeds(args.seed)
 
 CHECKPOINTS = {"minilm": cross_encoder.MINILM, "bge": cross_encoder.BGE}
+
+
+def checkpoint_for(name):
+    """Named shorthand, or a path/HF id passed through as-is."""
+    return CHECKPOINTS.get(name, name)
 
 records = {s: load_records(args.manifest, s) for s in ("train", "test")}
 vid_db = torch.load(AEMS_VID_EMBEDDINGS_PATH, weights_only=False)
@@ -227,7 +234,10 @@ else:
 
 # ---------------------------------------------------------------- option 2
 for key in args.models:
-    name = CHECKPOINTS[key]
+    name = checkpoint_for(key)
+    if key not in CHECKPOINTS and not os.path.exists(key) and "/" in key and key.count("/") > 1:
+        print(f"[skip] {key}: not a known shorthand, a local path, or an HF id", flush=True)
+        continue
     print(f"[CROSS-ENCODER] loading {name}...", flush=True)
     ce_model, tokenizer = cross_encoder.load_cross_encoder(name, DEVICE)
 
