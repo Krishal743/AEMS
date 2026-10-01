@@ -1,7 +1,8 @@
 import sys, json, torch, argparse, os, gc, time, random
 import clip
 import numpy as np
-from src.routing.query_router import load_gate, zscore, fixed_weights, ChunkIndex
+from src.routing.query_router import (load_gate, zscore, fixed_weights, ChunkIndex,
+                                      BRANCHES)
 from src.retrieval.bm25 import BM25PassageIndex
 from src.data.text_chunks import lexical_fields
 from src.evaluation.evaluate_retrieval import (ground_truth_ranks, hits_at_k,
@@ -33,10 +34,11 @@ parser.add_argument("--bootstrap-iters", type=int, default=1000)
 parser.add_argument("--num-queries", type=int, default=None, help="Limit queries for debugging")
 parser.add_argument("--rerank", choices=["none", "gate", "cross"], default="none",
                     help="also evaluate the two-stage system with this stage-2 reranker")
-parser.add_argument("--rerank-top-k", type=int, default=50, help="shortlist depth to rerank")
-parser.add_argument("--rerank-passages", type=int, default=3)
-parser.add_argument("--rerank-alpha", type=float, default=0.25)
-parser.add_argument("--cross-encoder", default="cross-encoder/ms-marco-MiniLM-L6-v2")
+parser.add_argument("--rerank-top-k", type=int, default=100, help="shortlist depth to rerank")
+parser.add_argument("--rerank-passages", type=int, default=8)
+parser.add_argument("--rerank-alpha", type=float, default=0.3)
+parser.add_argument("--cross-encoder", default=None,
+                    help="defaults to the fine-tuned checkpoint when present")
 parser.add_argument("--per-candidate-gate", default=AEMS_PER_CANDIDATE_GATE_PATH)
 args = parser.parse_args()
 
@@ -237,7 +239,9 @@ if args.rerank != "none":
         chunk_db_rr = torch.load(AEMS_TEXT_CHUNKS_PATH_TEMPLATE.format(split="test"),
                                  weights_only=False)
         store = cross_encoder.PassageStore(records, common_vids, chunk_db_rr, DEVICE)
-        ce_model, tokenizer = cross_encoder.load_cross_encoder(args.cross_encoder, DEVICE)
+        from src.routing.query_router import CROSS_ENCODER_MODEL
+        ce_model, tokenizer = cross_encoder.load_cross_encoder(
+            args.cross_encoder or CROSS_ENCODER_MODEL, DEVICE)
         rescored = cross_encoder.rerank(ce_model, tokenizer, queries,
                                         query_clip.float().to(DEVICE), candidates.to(DEVICE),
                                         store, common_vids, n_passages=args.rerank_passages,
@@ -303,7 +307,6 @@ for name, sim in systems.items():
         sys_entry["w_v_std"] = float(w_all[:, 0].std())
         sys_entry["w_t_mean"] = float(w_all[:, 1].mean())
         sys_entry["w_t_std"] = float(w_all[:, 1].std())
-        from src.routing.query_router import BRANCHES
         for b, name_b in enumerate(BRANCHES):
             sys_entry[f"w_{name_b}_mean"] = float(w_all[:, b].mean())
             sys_entry[f"w_{name_b}_std"] = float(w_all[:, b].std())
@@ -324,9 +327,8 @@ for name, sim in systems.items():
 if gate_available and gate is not None:
     with torch.no_grad():
         w_all = gate(query_clip.float().to(DEVICE)).cpu()
-    from src.routing.query_router import BRANCHES as _BRANCHES
     print(f"\n  Gate weights (all queries):")
-    for b, name_b in enumerate(_BRANCHES):
+    for b, name_b in enumerate(BRANCHES):
         print(f"    w_{name_b:<7}: {w_all[:, b].mean():.4f} ± {w_all[:, b].std():.4f}")
 
 print("\n" + "-" * 70)
@@ -346,10 +348,11 @@ for ci, cat in enumerate(categories):
         cat_row["gate_minus_fixed_R@1"] = (cat_row["adaptive_gating_R@1"]
                                            - cat_row["fixed_fusion_R@1"])
     results["category_stratified"][cat] = cat_row
-    print(f"  {cat:>30} (n={cat_n:>4}): ", end="")
-    for name in systems:
-        print(f"{name}={cat_row[f'{name}_R@1']:.4f}  ", end="")
-    print()
+    best_system = max(systems, key=lambda n: cat_row[f"{n}_R@1"])
+    print(f"  {cat:>30} (n={cat_row['n_queries']:>4}): "
+          f"best={best_system} {cat_row[f'{best_system}_R@1']:.4f}  "
+          f"deployed={cat_row.get('reranked_cross_R@1', cat_row['adaptive_gating_R@1']):.4f}  "
+          f"gate-vs-fixed={cat_row.get('gate_minus_fixed_R@1', 0):+.4f}")
 
 output_path = os.path.join(OUTPUT_DIR, f"eval_results_{args.visual_variant}_{args.text_variant}_v1.json")
 with open(output_path, "w") as f:
@@ -377,12 +380,11 @@ with open(summary_path, "w") as f:
                                        + ("" if (d[1] > 0 or d[2] < 0) else " n.s."))
         f.write(f"| {name} | {r['R@1']:.4f}{ci_str} | {r['R@5']:.4f} | {r['R@10']:.4f} "
                 f"| {r['MRR']:.4f} | {delta_str} |\n")
-    if "adaptive_gating" in results["systems"] and "w_v_mean" in results["systems"]["adaptive_gating"]:
-        ag = results["systems"]["adaptive_gating"]
-        f.write(f"\n**Gating weights**: w_v={ag['w_v_mean']:.4f}±{ag['w_v_std']:.4f}, "
-                f"w_t={ag['w_t_mean']:.4f}±{ag['w_t_std']:.4f}, "
-                f"w_c={ag['w_c_mean']:.4f}±{ag['w_c_std']:.4f}, "
-                f"w_a={ag['w_a_mean']:.4f}±{ag['w_a_std']:.4f}\n")
+    ag = results["systems"].get("adaptive_gating", {})
+    if f"w_{BRANCHES[0]}_mean" in ag:
+        weights_text = ", ".join(f"{b}={ag[f'w_{b}_mean']:.4f}±{ag[f'w_{b}_std']:.4f}"
+                                 for b in BRANCHES)
+        f.write(f"\n**Gating weights**: {weights_text}\n")
     f.write(f"\n## Category-stratified R@1\n")
     f.write(f"| Category | n_q |")
     for name in systems:
@@ -401,8 +403,7 @@ print(f"Summary table: {summary_path}")
 if gate_available and gate is not None:
     weight_summary = {
         **{f"w_{n}_{stat}": float(getattr(w_all[:, i], stat)())
-           for i, n in enumerate(__import__("src.routing.query_router", fromlist=["BRANCHES"]).BRANCHES)
-           for stat in ("mean", "std")},
+           for i, n in enumerate(BRANCHES) for stat in ("mean", "std")},
     }
     weight_path = os.path.join(OUTPUT_DIR, "gating_weights_summary.json")
     with open(weight_path, "w") as f:

@@ -40,7 +40,11 @@ from src.config import (
 from src.models.gating_network import GatingNetwork
 from src.models.audio_adapter import load_audio_adapter
 
-CROSS_ENCODER_MODEL = "cross-encoder/ms-marco-MiniLM-L6-v2"
+# Fine-tuned on AEMS (bin/training/train_cross_encoder.py); falls back to the
+# off-the-shelf checkpoint when that has not been trained yet.
+FINETUNED_CROSS_ENCODER = "models/aems_cross_encoder_v1"
+CROSS_ENCODER_MODEL = (FINETUNED_CROSS_ENCODER if os.path.isdir(FINETUNED_CROSS_ENCODER)
+                       else "cross-encoder/ms-marco-MiniLM-L6-v2")
 
 BRANCHES = ("visual", "text", "chunk", "audio", "bm25")
 
@@ -59,12 +63,13 @@ def add_index_args(parser):
                         help="stage-2 reranking of the shortlist: none (default, fastest); "
                              "gate: per-candidate gating network; cross: cross-encoder "
                              "(reads query and passage together — much better, much slower)")
-    parser.add_argument("--rerank-top-k", type=int, default=20, help="shortlist depth to rerank")
+    parser.add_argument("--rerank-top-k", type=int, default=100, help="shortlist depth to rerank")
     parser.add_argument("--per-candidate-gate", default=AEMS_PER_CANDIDATE_GATE_PATH)
     parser.add_argument("--cross-encoder", default=CROSS_ENCODER_MODEL)
-    parser.add_argument("--rerank-passages", type=int, default=3,
-                        help="passages per candidate scored by the cross-encoder")
-    parser.add_argument("--rerank-alpha", type=float, default=0.5,
+    parser.add_argument("--rerank-passages", type=int, default=8,
+                        help="passages per candidate scored by the cross-encoder; reading more "
+                             "of each candidate beat shortlisting more of them on validation")
+    parser.add_argument("--rerank-alpha", type=float, default=0.3,
                         help="weight of the cross-encoder score against the stage-1 score")
     parser.add_argument("--top-k", type=int, default=5)
 

@@ -60,6 +60,9 @@ AEMS_TEXT_EMBEDDINGS_TRANS_PATH_TEMPLATE = "embeddings/aems_text_embeddings_tran
 AEMS_TEXT_EMBEDDINGS_FUSED_PATH_TEMPLATE = "embeddings/aems_text_embeddings_fused_{split}.pt"
 # Per-chunk text embeddings for the late-interaction (max-sim) branch.
 AEMS_TEXT_CHUNKS_PATH_TEMPLATE = "embeddings/aems_text_chunks_{split}.pt"
+# Per-frame CLIP embeddings: late interaction over frames, and the only way to
+# hold a frame out of the index when evaluating image queries.
+AEMS_FRAME_EMBEDDINGS_PATH = "embeddings/aems_frame_embeddings_v1.pt"
 
 # ===== AEMS model paths =====
 AEMS_TRANSFORMER_BEST_PATH = "models/aems_temporal_transformer_best_v1.pth"

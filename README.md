@@ -120,47 +120,26 @@ Edit `src/config.py` for:
 
 ## 📈 Results
 
-AEMS test split — 5,097 QA queries over 1,022 videos, `bin/evaluation/eval_aems_retrieval.py`:
+AEMS test split — 5,097 QA queries over 1,022 videos. Full tables, category
+breakdown and caveats in `docs/RESULTS_2026-10-01.md`.
 
-| System | R@1 | R@5 | R@10 |
-|---|---|---|---|
-| Visual only | 0.194 | 0.342 | 0.408 |
-| Text only (mean-pooled) | 0.389 | 0.509 | 0.554 |
-| Passage only (max-sim over chunks) | 0.365 | 0.500 | 0.545 |
-| Audio only (WavLM + adapter) | 0.053 | 0.152 | 0.211 |
-| Equal fusion | 0.405 | 0.575 | 0.630 |
-| Fixed-weight fusion | 0.459 | 0.606 | 0.657 |
-| **Adaptive gating** | **0.463** | **0.619** | **0.665** |
+| Stage | System | R@1 | R@5 | R@10 | MRR |
+|---|---|---|---|---|---|
+| — | Starting point (gate collapsed to text) | 0.389 | 0.509 | 0.554 | 0.449 |
+| 1 | Five-branch fusion + adaptive gating | 0.632 | 0.740 | 0.770 | 0.684 |
+| 2 | **+ fine-tuned cross-encoder (deployed)** | **0.698** | **0.778** | **0.796** | **0.736** |
 
-Gate weights vary per query — visual 0.185 ± 0.091, text 0.405 ± 0.101,
-passage 0.265 ± 0.105, audio 0.146 ± 0.062 — so all four branches contribute
-rather than the gate collapsing onto text as an earlier version did.
+Single branches, for reference: BM25 0.550, text 0.389, passage 0.365, visual
+0.194, audio 0.053. The strongest single signal is lexical, not neural.
 
-Starting point before this work: R@1 0.389, R@10 0.554 (the gate had collapsed
-to text-only search) and audio-only 0.004 with CLAP.
+Gate weights vary per query — text 0.310 ± 0.123, BM25 0.243 ± 0.095, visual
+0.169 ± 0.106, audio 0.149 ± 0.071, passage 0.129 ± 0.070 — so all five branches
+contribute rather than the gate collapsing onto one.
 
-### Two-stage retrieval (optional, `--rerank`)
-
-Stage 1 above ranks all 1,022 videos. A stage-2 reranker rescores only its top
-candidates, which is where the remaining headroom is: the right video is in
-stage 1's top 50 for 79% of queries but ranked first for 46%.
-
-| Reranker | R@1 | R@10 | Δ R@1 vs stage 1 | ms/query |
-|---|---|---|---|---|
-| none (stage 1 only) | 0.462 | 0.665 | — | 0 |
-| `--rerank gate` (per-candidate gating) | 0.471 | 0.664 | +0.009 [+0.003, +0.015] | 0.1 |
-| `--rerank cross` (MiniLM cross-encoder) | **0.587** | **0.713** | **+0.125 [+0.114, +0.135]** | 12 |
-| BGE-reranker-v2-m3 (evaluated, not deployed) | 0.593 | 0.716 | +0.131 [+0.119, +0.141] | 87 |
-
-The cross-encoder reads the query and a transcript passage *together* rather
-than comparing two independently-made embeddings. It is off by default because
-it adds latency; both rerankers are opt-in.
-
-MiniLM is the deployed cross-encoder. BGE-reranker-v2-m3 (2.3 GB, 25x larger)
-scored *lower* on the validation split used for selection (0.6135 vs 0.6184)
-and 0.6 points higher on test, a difference well inside the overlapping
-confidence intervals — for 7x the latency. Reproduce with
-`bin/evaluation/eval_rerankers.py --models bge`.
+Two caveats worth reading before quoting these numbers: query words appear in
+their own transcript 4.6x more than in a random one, so BM25's contribution is
+partly an artifact of how the QA questions were written; and all 5,097 test
+queries are text, so the image/video/audio query paths are unmeasured.
 
 Results are saved to `outputs/aems/`.
 
