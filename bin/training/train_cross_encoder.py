@@ -22,12 +22,14 @@ import torch.nn.functional as F
 
 from src.config import (AEMS_MANIFEST_PATH, AEMS_VID_EMBEDDINGS_PATH, AEMS_AUDIO_EMBEDDINGS_PATH,
                         AEMS_GATING_WEIGHTS_PATH, AEMS_TEXT_EMBEDDINGS_FUSED_PATH_TEMPLATE,
-                        AEMS_TEXT_CHUNKS_PATH_TEMPLATE, DEVICE, set_seeds)
+                        AEMS_TEXT_CHUNKS_PATH_TEMPLATE,
+                        AEMS_DENSE_PASSAGES_PATH_TEMPLATE, AEMS_DENSE_TEXT_MODEL, DEVICE, set_seeds)
 from src.evaluation.evaluate_retrieval import ground_truth_ranks, metrics_from_ranks
 from src.rerank import cross_encoder, finetune, stage1
-from src.routing.query_router import ChunkIndex, load_gate, zscore
+from src.routing.query_router import ChunkIndex, chunk_index_from, fixed_weights, zscore
 from src.retrieval.bm25 import BM25PassageIndex
 from src.data.text_chunks import lexical_fields
+from src.encoders.text_retrieval import TextRetrievalEncoder
 from src.training.query_data import (load_records, questions, validation_split, encode_clip_text,
                                      flatten_questions, stack_embeddings, query_rows)
 
@@ -62,13 +64,17 @@ vid_db = torch.load(AEMS_VID_EMBEDDINGS_PATH, weights_only=False)
 aud_db = torch.load(AEMS_AUDIO_EMBEDDINGS_PATH, weights_only=False)
 txt_db = torch.load(AEMS_TEXT_EMBEDDINGS_FUSED_PATH_TEMPLATE.format(split="train"), weights_only=False)
 chunk_db = torch.load(AEMS_TEXT_CHUNKS_PATH_TEMPLATE.format(split="train"), weights_only=False)
+dense_db = torch.load(AEMS_DENSE_PASSAGES_PATH_TEMPLATE.format(split="train"), weights_only=False)
 
 usable = [v for v, r in records.items()
-          if v in vid_db and v in aud_db and v in txt_db and v in chunk_db and questions(r)]
+          if v in vid_db and v in aud_db and v in txt_db and v in chunk_db and v in dense_db
+          and questions(r)]
 fit_vids, val_vids = validation_split(usable, args.val_frac)
 print(f"[DATA] fit={len(fit_vids)} val={len(val_vids)} (test split untouched)", flush=True)
 
-gate = load_gate(args.gate_weights, DEVICE)
+# Stage 1 uses the deployed fixed weights, which beat the gate on validation and
+# were not fitted on these queries.
+dense_encoder = TextRetrievalEncoder(AEMS_DENSE_TEXT_MODEL, DEVICE)
 
 
 def build_split(vids):
@@ -86,21 +92,26 @@ def build_split(vids):
     chunks = ChunkIndex(torch.cat(chunk_rows).to(DEVICE), torch.tensor(owner, device=DEVICE), len(vids))
 
     bm25 = BM25PassageIndex([lexical_fields(records[v]) for v in vids])
+    dense = chunk_index_from(dense_db, vids,
+                             dim=torch.as_tensor(dense_db[vids[0]]).shape[-1])
+    dense = dense._replace(rows=dense.rows.to(DEVICE), owner=dense.owner.to(DEVICE))
+    q_dense = dense_encoder.encode_queries(query_texts, batch_size=256).to(DEVICE)
     sims = [zscore(q @ stack_embeddings(vid_db, vids, DEVICE).T),
             zscore(q @ stack_embeddings(txt_db, vids, DEVICE).T),
             zscore(chunks.max_sim_batch(q)),
             zscore(q @ stack_embeddings(aud_db, vids, DEVICE).T),
-            zscore(bm25.score_batch(query_texts).to(DEVICE))]
-    with torch.no_grad():
-        w = gate(q)
-    scores = stage1.fuse(w, sims)
+            zscore(bm25.score_batch(query_texts).to(DEVICE)),
+            zscore(dense.max_sim_batch(q_dense))]
+    scores = stage1.fuse(fixed_weights().to(DEVICE), sims)
     store = cross_encoder.PassageStore(records, vids, chunk_db, DEVICE)
     return {"vids": vids, "q": q, "gt": gt, "scores": scores, "texts": query_texts, "store": store}
 
 
-print("[DATA] Building stage-1 scores...", flush=True)
+print("[DATA] Building stage-1 scores (fixed fusion weights)...", flush=True)
 fit = build_split(fit_vids)
 val = build_split(val_vids)
+del dense_encoder
+torch.cuda.empty_cache()
 
 fit_candidates, fit_recall = finetune.shortlist_for_split(fit["scores"], fit["gt"], args.top_k)
 val_candidates, val_recall = finetune.shortlist_for_split(val["scores"], val["gt"], args.top_k)

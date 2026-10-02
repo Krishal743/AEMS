@@ -19,11 +19,14 @@ import torch.nn.functional as F
 from src.config import (AEMS_MANIFEST_PATH, AEMS_VID_EMBEDDINGS_PATH, AEMS_AUDIO_EMBEDDINGS_PATH,
                         AEMS_GATING_WEIGHTS_PATH, AEMS_PER_CANDIDATE_GATE_PATH,
                         AEMS_TEXT_EMBEDDINGS_FUSED_PATH_TEMPLATE, AEMS_TEXT_CHUNKS_PATH_TEMPLATE,
+                        AEMS_DENSE_PASSAGES_PATH_TEMPLATE, AEMS_DENSE_TEXT_MODEL,
                         DEVICE, set_seeds)
 from src.evaluation.evaluate_retrieval import (ground_truth_ranks, hits_at_k, metrics_from_ranks,
                                                bootstrap_ci, paired_bootstrap)
 from src.rerank import cross_encoder, per_candidate, stage1
-from src.routing.query_router import BRANCHES, ChunkIndex, load_gate, zscore
+from src.routing.query_router import (BRANCHES, ChunkIndex, chunk_index_from,
+                                      fixed_weights, zscore)
+from src.encoders.text_retrieval import TextRetrievalEncoder
 from src.retrieval.bm25 import BM25PassageIndex
 from src.data.text_chunks import lexical_fields
 from src.training.query_data import (load_records, questions, validation_split, encode_clip_text,
@@ -63,13 +66,16 @@ txt_db = {s: torch.load(AEMS_TEXT_EMBEDDINGS_FUSED_PATH_TEMPLATE.format(split=s)
           for s in ("train", "test")}
 chunk_db = {s: torch.load(AEMS_TEXT_CHUNKS_PATH_TEMPLATE.format(split=s), weights_only=False)
             for s in ("train", "test")}
-gate = load_gate(args.gate_weights, DEVICE)
+dense_db = {s: torch.load(AEMS_DENSE_PASSAGES_PATH_TEMPLATE.format(split=s), weights_only=False)
+            for s in ("train", "test")}
+# Stage 1 uses the deployed fixed weights, which beat the gate on validation.
+dense_encoder = TextRetrievalEncoder(AEMS_DENSE_TEXT_MODEL, DEVICE)
 
 
 def usable(split):
     return [v for v, r in records[split].items()
             if v in vid_db and v in aud_db and v in txt_db[split] and v in chunk_db[split]
-            and questions(r)]
+            and v in dense_db[split] and questions(r)]
 
 
 _, val_vids = validation_split(usable("train"))
@@ -103,14 +109,18 @@ def build(split_name):
     chunks = ChunkIndex(torch.cat(chunk_rows).to(DEVICE), torch.tensor(owner, device=DEVICE), len(vids))
 
     bm25 = BM25PassageIndex([lexical_fields(records[split][v]) for v in vids])
+    dense_index = chunk_index_from(dense_db[split], vids,
+                                   dim=torch.as_tensor(dense_db[split][vids[0]]).shape[-1])
+    dense_index = dense_index._replace(rows=dense_index.rows.to(DEVICE),
+                                       owner=dense_index.owner.to(DEVICE))
+    q_dense = dense_encoder.encode_queries(query_texts, batch_size=256).to(DEVICE)
     sims = [zscore(q @ stack_embeddings(vid_db, vids, DEVICE).T),
             zscore(q @ stack_embeddings(txt_db[split], vids, DEVICE).T),
             zscore(chunks.max_sim_batch(q)),
             zscore(q @ stack_embeddings(aud_db, vids, DEVICE).T),
-            zscore(bm25.score_batch(query_texts).to(DEVICE))]
-    with torch.no_grad():
-        w = gate(q)
-    scores = stage1.fuse(w, sims)
+            zscore(bm25.score_batch(query_texts).to(DEVICE)),
+            zscore(dense_index.max_sim_batch(q_dense))]
+    scores = stage1.fuse(fixed_weights().to(DEVICE), sims)
 
     flags = []
     for v in vids:
