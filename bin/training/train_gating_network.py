@@ -28,11 +28,13 @@ from src.config import (AEMS_MANIFEST_PATH, AEMS_VID_EMBEDDINGS_PATH, AEMS_AUDIO
                         AEMS_TEXT_EMBEDDINGS_FUSED_PATH_TEMPLATE,
                         AEMS_TEXT_EMBEDDINGS_DESC_PATH_TEMPLATE,
                         AEMS_TEXT_CHUNKS_PATH_TEMPLATE,
+                        AEMS_DENSE_PASSAGES_PATH_TEMPLATE, AEMS_DENSE_TEXT_MODEL,
                         AEMS_FUSION_WEIGHTS, AEMS_AUDIO_OOF_PATH, DEVICE, set_seeds)
 from src.models.gating_network import GatingNetwork
 from src.retrieval.bm25 import BM25PassageIndex
 from src.data.text_chunks import lexical_fields
-from src.routing.query_router import BRANCHES, ChunkIndex, zscore
+from src.routing.query_router import BRANCHES, ChunkIndex, chunk_index_from, zscore
+from src.encoders.text_retrieval import TextRetrievalEncoder
 from src.training.audio_adapter_fit import out_of_fold_audio
 from src.training.query_data import (load_records, questions, validation_split, encode_clip_text,
                                      flatten_questions, stack_embeddings, query_rows, recall_metrics)
@@ -44,6 +46,8 @@ parser.add_argument("--audio-embeds", default=AEMS_AUDIO_EMBEDDINGS_PATH)
 parser.add_argument("--audio-features", default=AEMS_WAVLM_FEATURES_PATH)
 parser.add_argument("--text-embeds-train", default=AEMS_TEXT_EMBEDDINGS_FUSED_PATH_TEMPLATE.format(split="train"))
 parser.add_argument("--chunk-embeds-train", default=AEMS_TEXT_CHUNKS_PATH_TEMPLATE.format(split="train"))
+parser.add_argument("--dense-embeds-train", default=AEMS_DENSE_PASSAGES_PATH_TEMPLATE.format(split="train"))
+parser.add_argument("--dense-model", default=AEMS_DENSE_TEXT_MODEL)
 parser.add_argument("--output", default=AEMS_GATING_WEIGHTS_PATH)
 parser.add_argument("--epochs", type=int, default=30)
 parser.add_argument("--batch-size", type=int, default=256)
@@ -68,12 +72,13 @@ vid_db = torch.load(args.video_embeds, weights_only=False)
 aud_db = torch.load(args.audio_embeds, weights_only=False)
 txt_db = torch.load(args.text_embeds_train, weights_only=False)
 chunk_db = torch.load(args.chunk_embeds_train, weights_only=False)
+dense_db = torch.load(args.dense_embeds_train, weights_only=False)
 feat_db = torch.load(args.audio_features, weights_only=False)
 desc_db = torch.load(AEMS_TEXT_EMBEDDINGS_DESC_PATH_TEMPLATE.format(split="train"), weights_only=False)
 
 usable = [v for v in records
           if v in vid_db and v in aud_db and v in txt_db and v in feat_db and v in desc_db
-          and v in chunk_db
+          and v in chunk_db and v in dense_db
           and questions(records[v])]
 fit_vids, val_vids = validation_split(usable, args.val_frac)
 print(f"[DATA] fit={len(fit_vids)} val={len(val_vids)} (test split untouched)", flush=True)
@@ -81,6 +86,12 @@ print(f"[DATA] fit={len(fit_vids)} val={len(val_vids)} (test split untouched)", 
 print("[ENC] Encoding QA questions with CLIP...", flush=True)
 texts, rows = flatten_questions(records, fit_vids + val_vids)
 q_emb = encode_clip_text(texts, DEVICE)
+
+print(f"[ENC] Encoding QA questions with {args.dense_model} (dense branch)...", flush=True)
+_dense_encoder = TextRetrievalEncoder(args.dense_model, DEVICE)
+q_dense = _dense_encoder.encode_queries(texts, batch_size=256)
+del _dense_encoder
+torch.cuda.empty_cache()
 
 oof = aud_db
 if args.no_cross_fit:
@@ -108,19 +119,24 @@ def branches(videos, audio_source):
     index = chunk_index(videos)
     bm25 = BM25PassageIndex([lexical_fields(records[v]) for v in videos])
     query_texts = [texts[i] for i in idx.tolist()]
+    dim = torch.as_tensor(dense_db[videos[0]]).shape[-1]
+    dense = chunk_index_from(dense_db, videos, dim=dim)
+    dense = dense._replace(rows=dense.rows.to(DEVICE), owner=dense.owner.to(DEVICE))
     sims = [zscore(q @ stack_embeddings(vid_db, videos, DEVICE).T),
             zscore(q @ stack_embeddings(txt_db, videos, DEVICE).T),
             zscore(index.max_sim_batch(q)),
             zscore(q @ stack_embeddings(audio_source, videos, DEVICE).T),
-            zscore(bm25.score_batch(query_texts).to(DEVICE))]
+            zscore(bm25.score_batch(query_texts).to(DEVICE)),
+            zscore(dense.max_sim_batch(q_dense[idx].to(DEVICE)))]
     return {"q": q, "gt": gt, "sims": sims}
 
 
 fit = branches(fit_vids, oof)       # out-of-fold audio: honest for training
 val = branches(val_vids, aud_db)    # deployed adapter never fitted on val
 print(f"[DATA] fit queries={fit['q'].shape[0]} val queries={val['q'].shape[0]}", flush=True)
-print(f"[TEXT ] passage-branch R@1: val={recall_metrics(val['sims'][2], val['gt'])['R@1']:.4f}  "
-      f"bm25-branch R@1: val={recall_metrics(val['sims'][4], val['gt'])['R@1']:.4f}", flush=True)
+for i, branch in enumerate(BRANCHES):
+    print(f"[BRANCH] {branch:<7} alone R@1: val="
+          f"{recall_metrics(val['sims'][i], val['gt'])['R@1']:.4f}", flush=True)
 print(f"[AUDIO] audio-only R@1: fit(out-of-fold)={recall_metrics(fit['sims'][3], fit['gt'])['R@1']:.4f} "
       f"val={recall_metrics(val['sims'][3], val['gt'])['R@1']:.4f}", flush=True)
 
@@ -131,16 +147,17 @@ def fuse(w, sims):
 
 def fixed_baseline():
     """Best fixed weights on validation, as the bar the gate has to clear."""
-    grid = [round(x, 2) for x in np.arange(0, 1.01, 0.2)]
+    grid = [0.0, 0.25, 0.5, 1.0]
     best, best_w = -1.0, None
     for wv in grid:
         for wt in grid:
-            for wa in grid:
-                for wb in grid:
-                    w = torch.tensor([[wv, wt, 1.0, wa, wb]], device=DEVICE)
-                    r1 = recall_metrics(fuse(w, val["sims"]), val["gt"])["R@1"]
-                    if r1 > best:
-                        best, best_w = r1, (wv, wt, 1.0, wa, wb)
+            for wc in grid:
+                for wa in grid:
+                    for wb in grid:
+                        w = torch.tensor([[wv, wt, wc, wa, wb, 1.0]], device=DEVICE)
+                        r1 = recall_metrics(fuse(w, val["sims"]), val["gt"])["R@1"]
+                        if r1 > best:
+                            best, best_w = r1, (wv, wt, wc, wa, wb, 1.0)
     return best, best_w
 
 

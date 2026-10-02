@@ -31,13 +31,17 @@ def split_into_chunks(text, budget=CHUNK_TOKEN_BUDGET):
     return chunks
 
 
-def video_chunks(record, max_chunks=MAX_CHUNKS):
-    """Description first (it summarises), then transcript passages."""
+def video_chunks(record, max_chunks=MAX_CHUNKS, budget=CHUNK_TOKEN_BUDGET):
+    """Description first (it summarises), then transcript passages.
+
+    `budget` is the chunk size in tokens: 72 for CLIP's 77-token window, far
+    larger for a retrieval encoder that accepts 512.
+    """
     parts = []
     description = (record.get("text_description") or "").strip()
     if description:
         parts.append(description)
-    parts.extend(split_into_chunks(record.get("text_transcript") or ""))
+    parts.extend(split_into_chunks(record.get("text_transcript") or "", budget=budget))
     if not parts:
         title = (record.get("youtube_title") or "").strip()
         parts = [title] if title else []

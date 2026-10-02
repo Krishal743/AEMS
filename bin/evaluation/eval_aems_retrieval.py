@@ -2,7 +2,8 @@ import sys, json, torch, argparse, os, gc, time, random
 import clip
 import numpy as np
 from src.routing.query_router import (load_gate, zscore, fixed_weights, ChunkIndex,
-                                      BRANCHES)
+                                      chunk_index_from, BRANCHES)
+from src.encoders.text_retrieval import TextRetrievalEncoder
 from src.retrieval.bm25 import BM25PassageIndex
 from src.data.text_chunks import lexical_fields
 from src.evaluation.evaluate_retrieval import (ground_truth_ranks, hits_at_k,
@@ -15,6 +16,7 @@ from src.config import (AEMS_MANIFEST_PATH, AEMS_VID_EMBEDDINGS_PATH, AEMS_AUDIO
                          AEMS_TEXT_EMBEDDINGS_TRANS_PATH_TEMPLATE,
                          AEMS_TEXT_EMBEDDINGS_FUSED_PATH_TEMPLATE,
                          AEMS_TEXT_CHUNKS_PATH_TEMPLATE,
+                         AEMS_DENSE_PASSAGES_PATH_TEMPLATE, AEMS_DENSE_TEXT_MODEL,
                          DEVICE, set_seeds)
 from src.data.metadata import load_metadata, filter_by_split
 
@@ -85,6 +87,7 @@ else:
 
 audio_db = torch.load(AEMS_AUDIO_EMBEDDINGS_PATH, weights_only=False)
 chunk_db = torch.load(AEMS_TEXT_CHUNKS_PATH_TEMPLATE.format(split="test"), weights_only=False)
+dense_db = torch.load(AEMS_DENSE_PASSAGES_PATH_TEMPLATE.format(split="test"), weights_only=False)
 text_db = torch.load(TEXT_PATHS[args.text_variant].format(split="test"), weights_only=False)
 
 print(f"[EMB] Visual DB: {len(video_db)} videos")
@@ -93,7 +96,8 @@ print(f"[EMB] Text DB:   {len(text_db)} videos")
 
 test_video_ids = set(rec["video_id"] for rec in records)
 common_vids = sorted(
-    set(video_db.keys()) & set(audio_db.keys()) & set(text_db.keys()) & set(chunk_db.keys()) & test_video_ids
+    set(video_db.keys()) & set(audio_db.keys()) & set(text_db.keys()) & set(chunk_db.keys())
+    & set(dense_db.keys()) & test_video_ids
 )
 print(f"[DATA] Common test videos: {len(common_vids)}")
 
@@ -170,6 +174,19 @@ chunk_index = ChunkIndex(torch.cat(chunk_rows).to(DEVICE), torch.tensor(chunk_ow
                          len(common_vids))
 sim_c = chunk_index.max_sim_batch(query_clip.float().to(DEVICE)).cpu()
 
+print(f"[SIM] Scoring the dense branch ({AEMS_DENSE_TEXT_MODEL})...", flush=True)
+_dense_encoder = TextRetrievalEncoder(AEMS_DENSE_TEXT_MODEL, DEVICE)
+query_dense = _dense_encoder.encode_queries(queries, batch_size=256)
+del _dense_encoder
+torch.cuda.empty_cache()
+_dense_index = chunk_index_from(dense_db, common_vids,
+                                dim=torch.as_tensor(dense_db[common_vids[0]]).shape[-1])
+_dense_index = _dense_index._replace(rows=_dense_index.rows.to(DEVICE),
+                                     owner=_dense_index.owner.to(DEVICE))
+sim_d = _dense_index.max_sim_batch(query_dense.to(DEVICE)).cpu()
+del _dense_index
+torch.cuda.empty_cache()
+
 print("[SIM] Scoring the BM25 lexical branch...", flush=True)
 bm25_records = {r["video_id"]: r for r in load_metadata(args.manifest)}
 bm25_index = BM25PassageIndex([lexical_fields(bm25_records[v]) for v in common_vids])
@@ -197,7 +214,7 @@ if gate is not None:
             w = gate(q).cpu()
         # same fusion as the router: gate weights over per-query z-scored branches
         gated = sum(w[:, b:b + 1] * zscore(sim[i:i+BATCH_SIZE])
-                    for b, sim in enumerate((sim_v, sim_t, sim_c, sim_a, sim_b)))
+                    for b, sim in enumerate((sim_v, sim_t, sim_c, sim_a, sim_b, sim_d)))
         sim_gated_list.append(gated)
     sim_gated = torch.cat(sim_gated_list, dim=0)
 
@@ -207,9 +224,10 @@ systems = {
     "passage_only": sim_c,
     "audio_only": sim_a,
     "bm25_only": sim_b,
-    "equal_fusion": (sim_v + sim_t + sim_c + sim_a + sim_b) / 5,
+    "dense_only": sim_d,
+    "equal_fusion": (sim_v + sim_t + sim_c + sim_a + sim_b + sim_d) / 6,
 }
-branch_z = [zscore(s) for s in (sim_v, sim_t, sim_c, sim_a, sim_b)]
+branch_z = [zscore(s) for s in (sim_v, sim_t, sim_c, sim_a, sim_b, sim_d)]
 fw = fixed_weights()
 systems["fixed_fusion"] = sum(fw[i] * branch_z[i] for i in range(len(branch_z)))
 if sim_gated is not None:
@@ -218,7 +236,7 @@ if sim_gated is not None:
 if args.rerank != "none":
     # Stage 2 rescores only the shortlist of the best stage-1 system available.
     from src.rerank import stage1 as shortlist_utils
-    stage1_scores = systems.get("adaptive_gating", systems["fixed_fusion"])
+    stage1_scores = systems["fixed_fusion"]   # beats the gate on validation
     candidates = shortlist_utils.top_k_candidates(stage1_scores, args.rerank_top_k)
     gt_pos = torch.tensor([common_vids.index(v) for v in query_video_ids])
     print(f"[RERANK] {args.rerank}: shortlist K={args.rerank_top_k}, "
@@ -228,7 +246,8 @@ if args.rerank != "none":
         from src.rerank import per_candidate
         model = per_candidate.load(args.per_candidate_gate, DEVICE, n_branches=len(branch_z))
         feats = shortlist_utils.gather_branch_scores(
-            [zscore(s) for s in (sim_v, sim_t, sim_c, sim_a, sim_b)], candidates.to(DEVICE))
+            [zscore(s) for s in (sim_v, sim_t, sim_c, sim_a, sim_b, sim_d)],
+            candidates.to(DEVICE))
         with torch.no_grad():
             rescored = per_candidate.score(model, query_clip.float().to(DEVICE), feats).cpu()
         systems["reranked_gate"] = shortlist_utils.rerank_scores_to_ranking(
@@ -273,6 +292,8 @@ results = {
         "text": f"aems_text_embeddings_{args.text_variant}_test.pt",
         "chunks": os.path.basename(AEMS_TEXT_CHUNKS_PATH_TEMPLATE.format(split="test")),
         "bm25": "BM25 over the same passages (no checkpoint)",
+        "dense": f"{AEMS_DENSE_TEXT_MODEL} passages: "
+                 f"{os.path.basename(AEMS_DENSE_PASSAGES_PATH_TEMPLATE.format(split='test'))}",
         "gating_weights": os.path.basename(args.gate_weights) if gate_available else None,
     },
     "systems": {},

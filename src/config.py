@@ -63,6 +63,12 @@ AEMS_TEXT_CHUNKS_PATH_TEMPLATE = "embeddings/aems_text_chunks_{split}.pt"
 # Per-frame CLIP embeddings: late interaction over frames, and the only way to
 # hold a frame out of the index when evaluating image queries.
 AEMS_FRAME_EMBEDDINGS_PATH = "embeddings/aems_frame_embeddings_v1.pt"
+# Dense passages from a retrieval-trained text encoder (E5). CLIP's text tower
+# was trained on image captions, not documents: on validation it scores 0.397
+# R@1 against E5's 0.639 for the same passages.
+AEMS_DENSE_TEXT_MODEL = "e5"
+AEMS_DENSE_CHUNK_TOKENS = 400
+AEMS_DENSE_PASSAGES_PATH_TEMPLATE = "embeddings/aems_dense_passages_{split}.pt"
 
 # ===== AEMS model paths =====
 AEMS_TRANSFORMER_BEST_PATH = "models/aems_temporal_transformer_best_v1.pth"
@@ -73,11 +79,16 @@ AEMS_PER_CANDIDATE_GATE_PATH = "models/aems_per_candidate_gate_v1.pth"
 
 # ===== Fusion =====
 # Each branch's similarities are z-scored per query over the gallery, then
-# combined with these weights when --fusion fixed is used. Tuned by grid search
-# on the validation split carved from train (never on test); re-tune whenever a
-# branch changes.
-AEMS_FUSION_WEIGHTS = {"visual": 0.3, "text": 1.0, "chunk": 1.0, "audio": 0.3,
-                       "bm25": 0.4}
+# combined with these weights. Tuned by grid search plus coordinate ascent on the
+# validation split (never on test). The learned gate was measured against these
+# and lost (0.7075 vs 0.7100), so fixed weights are the deployed default.
+# chunk is 0.0 by design: leave-one-out on validation showed the CLIP passage
+# branch contributes -0.0009 R@1 (inside noise) once the E5 dense branch exists,
+# and dropping it slightly *raises* shortlist recall@100 (0.8734 -> 0.8762). Its
+# embeddings are still loaded, because the cross-encoder uses them to choose
+# which passages to read, so removing the branch entirely would save nothing.
+AEMS_FUSION_WEIGHTS = {"visual": 0.25, "text": 0.25, "chunk": 0.0, "audio": 0.25,
+                       "bm25": 0.5, "dense": 1.0}
 AEMS_VIDEO_EMBEDDINGS_TRANSFORMER_PATH = "embeddings/aems_video_embeddings_transformer_v1.pt"
 
 

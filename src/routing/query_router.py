@@ -1,12 +1,14 @@
 """Route queries by type and compute multimodal similarities.
 
-There are five branches. Visual and caption embeddings are CLIP; the passage
+There are six branches. Visual and caption embeddings are CLIP; the passage
 branch keeps each video's text as separate CLIP-encoded chunks and scores a
 query against its best-matching passage (late interaction), which recovers the
 detail the mean-pooled caption vector averages away; audio embeddings are WavLM
 features projected into CLIP text space by the audio adapter; and the BM25
 branch matches the query's literal words against those same passages, which
-catches rare exact terms ("the Bellman equation") that dense embeddings blur.
+catches rare exact terms ("the Bellman equation") that dense embeddings blur;
+and the dense branch encodes the same passages with a retrieval-trained text
+model (E5), which CLIP's caption-trained text tower is no substitute for.
 
 A query supplies up to three things: a CLIP query scored against the
 visual/caption matrices, an audio query scored against the audio matrix (for
@@ -32,6 +34,8 @@ from src.config import (
     AEMS_AUDIO_EMBEDDINGS_PATH,
     AEMS_TEXT_EMBEDDINGS_FUSED_PATH_TEMPLATE,
     AEMS_TEXT_CHUNKS_PATH_TEMPLATE,
+    AEMS_DENSE_PASSAGES_PATH_TEMPLATE,
+    AEMS_DENSE_TEXT_MODEL,
     AEMS_GATING_WEIGHTS_PATH,
     AEMS_AUDIO_ADAPTER_PATH,
     AEMS_PER_CANDIDATE_GATE_PATH,
@@ -46,7 +50,7 @@ FINETUNED_CROSS_ENCODER = "models/aems_cross_encoder_v1"
 CROSS_ENCODER_MODEL = (FINETUNED_CROSS_ENCODER if os.path.isdir(FINETUNED_CROSS_ENCODER)
                        else "cross-encoder/ms-marco-MiniLM-L6-v2")
 
-BRANCHES = ("visual", "text", "chunk", "audio", "bm25")
+BRANCHES = ("visual", "text", "chunk", "audio", "bm25", "dense")
 
 
 def add_index_args(parser):
@@ -56,8 +60,13 @@ def add_index_args(parser):
                         default=AEMS_TEXT_EMBEDDINGS_FUSED_PATH_TEMPLATE.format(split="test"))
     parser.add_argument("--chunk-embeds",
                         default=AEMS_TEXT_CHUNKS_PATH_TEMPLATE.format(split="test"))
-    parser.add_argument("--fusion", choices=["gate", "fixed"], default="gate",
-                        help="gate: per-query gating network (default); fixed: AEMS_FUSION_WEIGHTS")
+    parser.add_argument("--dense-embeds",
+                        default=AEMS_DENSE_PASSAGES_PATH_TEMPLATE.format(split="test"))
+    parser.add_argument("--dense-model", default=AEMS_DENSE_TEXT_MODEL)
+    parser.add_argument("--fusion", choices=["fixed", "gate"], default="fixed",
+                        help="fixed: AEMS_FUSION_WEIGHTS (default — beats the gate on "
+                             "validation since the dense branch was added); "
+                             "gate: per-query gating network")
     parser.add_argument("--gate-weights", default=AEMS_GATING_WEIGHTS_PATH)
     parser.add_argument("--rerank", choices=["none", "gate", "cross"], default="none",
                         help="stage-2 reranking of the shortlist: none (default, fastest); "
@@ -154,10 +163,21 @@ class SearchIndex(NamedTuple):
     chunk: ChunkIndex
     audio: torch.Tensor
     bm25: object = None          # BM25PassageIndex, or None when not built
+    dense: ChunkIndex = None     # retrieval-encoder passages, own embedding space
+
+
+def chunk_index_from(db, video_ids, dim=512):
+    """Stack per-video matrices into one ChunkIndex (passages, frames, anything)."""
+    rows, owner = [], []
+    for i, v in enumerate(video_ids):
+        e = torch.as_tensor(db[v]).float().reshape(-1, dim)
+        rows.append(F.normalize(e, dim=1))
+        owner += [i] * e.shape[0]
+    return ChunkIndex(torch.cat(rows), torch.tensor(owner), len(video_ids))
 
 
 def load_search_index(video_path, audio_path, caption_path, chunk_path=None,
-                      manifest_path=None):
+                      manifest_path=None, dense_path=None):
     """Load the branches; matrices are L2-normalized row-wise.
 
     chunk_path and manifest_path may be None, in which case the passage and
@@ -168,6 +188,7 @@ def load_search_index(video_path, audio_path, caption_path, chunk_path=None,
     audio_db = torch.load(audio_path, weights_only=False)
     caption_db = torch.load(caption_path, weights_only=False)
     chunk_db = torch.load(chunk_path, weights_only=False) if chunk_path else {}
+    dense_db = torch.load(dense_path, weights_only=False) if dense_path else {}
     video_ids = sorted(v for v in video_db if v in audio_db and v in caption_db)
 
     def matrix(db):
@@ -179,14 +200,11 @@ def load_search_index(video_path, audio_path, caption_path, chunk_path=None,
             rows.append(e)
         return F.normalize(torch.stack(rows), dim=1)
 
-    chunks = None
-    if chunk_db:
-        rows, owner = [], []
-        for i, v in enumerate(video_ids):
-            e = torch.as_tensor(chunk_db[v]).float().reshape(-1, 512)
-            rows.append(F.normalize(e, dim=1))
-            owner += [i] * e.shape[0]
-        chunks = ChunkIndex(torch.cat(rows), torch.tensor(owner), len(video_ids))
+    chunks = chunk_index_from(chunk_db, video_ids) if chunk_db else None
+    dense = None
+    if dense_db:
+        dim = torch.as_tensor(dense_db[video_ids[0]]).shape[-1]
+        dense = chunk_index_from(dense_db, video_ids, dim=dim)
 
     bm25 = None
     if manifest_path:
@@ -197,7 +215,7 @@ def load_search_index(video_path, audio_path, caption_path, chunk_path=None,
         bm25 = BM25PassageIndex([lexical_fields(records[v]) for v in video_ids])
 
     return SearchIndex(video_ids, matrix(video_db), matrix(caption_db), chunks,
-                       matrix(audio_db), bm25)
+                       matrix(audio_db), bm25, dense)
 
 
 def load_gate(path, device):
@@ -226,7 +244,8 @@ def load_gate(path, device):
 
 def compute_modal_similarities(video_matrix, caption_matrix, audio_matrix,
                                clip_query=None, audio_query=None, chunk_index=None,
-                               bm25_index=None, query_text=None):
+                               bm25_index=None, query_text=None, dense_index=None,
+                               dense_query=None):
     """Return one similarity vector per branch; None where the query can't reach it."""
     def score(q, m):
         return None if q is None else (q.to(m.device, m.dtype) @ m.T).squeeze(0)
@@ -234,8 +253,11 @@ def compute_modal_similarities(video_matrix, caption_matrix, audio_matrix,
     sim_b = None
     if bm25_index is not None and query_text:
         sim_b = torch.tensor(bm25_index.score(query_text), dtype=torch.float32)
+    sim_d = None
+    if dense_index is not None and dense_query is not None:
+        sim_d = dense_index.max_sim(dense_query)
     return (score(clip_query, video_matrix), score(clip_query, caption_matrix),
-            sim_c, score(audio_query, audio_matrix), sim_b)
+            sim_c, score(audio_query, audio_matrix), sim_b, sim_d)
 
 
 def zscore(sim):
@@ -249,7 +271,7 @@ def fixed_weights(weights=None):
 
 
 def search(index, clip_query=None, audio_query=None, gate=None, weights=None,
-           query_text=None):
+           query_text=None, dense_query=None):
     """Score a query against the index.
 
     Returns (weights, then one similarity vector per branch) on CPU, where sims are
@@ -262,7 +284,7 @@ def search(index, clip_query=None, audio_query=None, gate=None, weights=None,
     video_ids = index.video_ids
     sims = compute_modal_similarities(index.visual, index.text, index.audio,
                                       clip_query, audio_query, index.chunk,
-                                      index.bm25, query_text)
+                                      index.bm25, query_text, index.dense, dense_query)
     mask = torch.tensor([s is not None for s in sims], dtype=torch.float32)
     if not mask.any():
         raise ValueError("query produced no embedding for any branch")

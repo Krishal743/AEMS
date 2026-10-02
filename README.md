@@ -120,26 +120,29 @@ Edit `src/config.py` for:
 
 ## 📈 Results
 
-AEMS test split — 5,097 QA queries over 1,022 videos. Full tables, category
-breakdown and caveats in `docs/RESULTS_2026-10-01.md`.
+AEMS test split — 5,097 QA queries over 1,022 videos. Full tables, ablations and
+caveats in `docs/RESULTS_2026-10-02.md`.
 
 | Stage | System | R@1 | R@5 | R@10 | MRR |
 |---|---|---|---|---|---|
-| — | Starting point (gate collapsed to text) | 0.389 | 0.509 | 0.554 | 0.449 |
-| 1 | Five-branch fusion + adaptive gating | 0.632 | 0.740 | 0.770 | 0.684 |
-| 2 | **+ fine-tuned cross-encoder (deployed)** | **0.698** | **0.778** | **0.796** | **0.736** |
+| — | Starting point | 0.389 | 0.509 | 0.554 | 0.449 |
+| 1 | Six-branch fusion, fixed weights | 0.687 | 0.774 | 0.794 | 0.728 |
+| 2 | **+ fine-tuned cross-encoder (deployed)** | **0.712** | **0.786** | **0.805** | **0.748** |
 
-Single branches, for reference: BM25 0.550, text 0.389, passage 0.365, visual
-0.194, audio 0.053. The strongest single signal is lexical, not neural.
+Single branches: dense E5 passages 0.624, BM25 0.550, CLIP caption 0.389, CLIP
+passages 0.365, CLIP visual 0.194, WavLM audio 0.053. Two text signals — one
+dense, one lexical — do nearly all the work.
 
-Gate weights vary per query — text 0.310 ± 0.123, BM25 0.243 ± 0.095, visual
-0.169 ± 0.106, audio 0.149 ± 0.071, passage 0.129 ± 0.070 — so all five branches
-contribute rather than the gate collapsing onto one.
+Three things worth knowing before quoting these numbers:
 
-Two caveats worth reading before quoting these numbers: query words appear in
-their own transcript 4.6x more than in a random one, so BM25's contribution is
-partly an artifact of how the QA questions were written; and all 5,097 test
-queries are text, so the image/video/audio query paths are unmeasured.
+- **Fusion is not adaptive.** The gating network is implemented and available
+  (`--fusion gate`) but loses to tuned fixed weights on both splits (test 0.6865
+  vs 0.6873), so static weights are deployed.
+- **Only text queries are evaluated.** All 5,097 test queries are QA questions;
+  the image/video/audio query paths are unmeasured.
+- **BM25 is flattered by the benchmark.** Query words appear in their own
+  transcript 4.6x more than in a random one, so the questions reuse transcript
+  wording.
 
 Results are saved to `outputs/aems/`.
 

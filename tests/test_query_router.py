@@ -52,13 +52,14 @@ def gate():
 
 def test_similarities_use_the_matching_branch(index):
     clip_q, audio_q = unit(1, D), unit(1, D)
-    sim_v, sim_t, sim_c, sim_a, sim_b = compute_modal_similarities(
+    sim_v, sim_t, sim_c, sim_a, sim_b, sim_d = compute_modal_similarities(
         index.visual, index.text, index.audio, clip_q, audio_q, index.chunk)
     assert torch.allclose(sim_v, (clip_q @ index.visual.T).squeeze(0))
     assert torch.allclose(sim_t, (clip_q @ index.text.T).squeeze(0))
     assert torch.allclose(sim_a, (audio_q @ index.audio.T).squeeze(0))
     assert sim_c.shape == (N,)
     assert sim_b is None                        # no BM25 index on this fixture
+    assert sim_d is None                        # no dense index on this fixture
 
 
 def test_passage_branch_scores_the_best_chunk(index, chunks):
@@ -83,6 +84,7 @@ def test_missing_branch_is_left_out(index):
                                       clip_query=unit(1, D), chunk_index=index.chunk)
     assert sims[3] is None                      # no audio query
     assert sims[4] is None                      # no BM25 index
+    assert sims[5] is None                      # no dense index
     assert all(s is not None for s in sims[:3])
 
 
@@ -104,9 +106,9 @@ def test_search_returns_zscored_similarities(index):
 def test_fixed_weights_are_used_and_renormalized(index):
     weights, *_ = search(index, clip_query=unit(1, D), audio_query=unit(1, D),
                          weights={"visual": 1.0, "text": 2.0, "chunk": 1.0, "audio": 0.0,
-                                  "bm25": 5.0})
-    # bm25 is unreachable without an index, so its weight is masked out entirely
-    assert torch.allclose(weights, torch.tensor([0.25, 0.5, 0.25, 0.0, 0.0]))
+                                  "bm25": 5.0, "dense": 5.0})
+    # bm25 and dense are unreachable without their indexes, so both are masked out
+    assert torch.allclose(weights, torch.tensor([0.25, 0.5, 0.25, 0.0, 0.0, 0.0]))
 
 
 def test_gate_mode_takes_weights_from_the_gate(index, gate):
@@ -114,7 +116,8 @@ def test_gate_mode_takes_weights_from_the_gate(index, gate):
     weights, *_ = search(index, clip_query=q, audio_query=q, gate=gate)
     with torch.no_grad():
         expected = gate(q).squeeze(0).clone()
-    expected[BRANCHES.index("bm25")] = 0.0      # unreachable: no BM25 index here
+    for unreachable in ("bm25", "dense"):      # no index for either on this fixture
+        expected[BRANCHES.index(unreachable)] = 0.0
     assert torch.allclose(weights, expected / expected.sum(), atol=1e-6)
 
 
@@ -155,6 +158,19 @@ def test_bm25_branch_scores_literal_word_overlap():
 def test_bm25_branch_is_masked_without_query_text(index, gate):
     weights, *_ = search(index, clip_query=unit(1, D), gate=gate)
     assert weights[BRANCHES.index("bm25")] == 0
+
+
+def test_dense_branch_scores_its_own_embedding_space():
+    """The dense branch has its own dim and query vector, unlike the CLIP branches."""
+    torch.manual_seed(0)
+    dense_dim, n_chunks = 768, 2
+    rows = F.normalize(torch.randn(3 * n_chunks, dense_dim), dim=1)
+    dense = ChunkIndex(rows, torch.arange(3).repeat_interleave(n_chunks), 3)
+    idx = SearchIndex([f"v{i}" for i in range(3)], unit(3, D), unit(3, D),
+                      chunk_index(unit(3, CHUNKS, D)), unit(3, D), None, dense)
+    query = rows[4:5]                                   # exactly video 2's second chunk
+    _, *sims = search(idx, clip_query=unit(1, D), dense_query=query)
+    assert sims[BRANCHES.index("dense")].argmax().item() == 2
 
 
 def test_index_without_chunks_still_searches(index):

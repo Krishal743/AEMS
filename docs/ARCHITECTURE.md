@@ -4,7 +4,28 @@
 
 **Query-Conditioned Adaptive Fusion for Any-to-Any Video Retrieval** on AEMS.
 
-The system uses four precomputed embedding branches — CLIP visual, CLIP caption (the video's text mean-pooled into one vector), CLIP passages (the same text kept as separate chunks and scored by best match), and WavLM audio projected into CLIP text space by a trained adapter. All three therefore live in one space and are scored with the same CLIP query. Each branch's similarities are z-scored per query over the gallery, then combined either with fixed weights (`AEMS_FUSION_WEIGHTS`, the default) or with per-query weights from the gating network (`--fusion gate`).
+The system indexes each video six ways and fuses the branches with **fixed
+weights** (`AEMS_FUSION_WEIGHTS`), after z-scoring each branch's similarities per
+query over the gallery.
+
+| Branch | Encoder | Weight | R@1 alone (test) |
+|---|---|---|---|
+| dense | E5-base passages (retrieval-trained) | 1.0 | 0.624 |
+| bm25 | lexical over passages + title/description/tags | 0.5 | 0.550 |
+| text | CLIP caption (description + transcript, mean-pooled) | 0.25 | 0.389 |
+| visual | CLIP ViT-B/32 over 16 frames, mean-pooled | 0.25 | 0.194 |
+| audio | WavLM-Large → adapter → CLIP text space | 0.25 | 0.053 |
+| chunk | CLIP passages, best-match | 0.0 (measured redundant) | 0.365 |
+
+Four branches share CLIP text space (the adapter projects audio into it), while
+BM25 has no vector space at all and E5 has its own; z-scoring is what makes them
+comparable, not shared geometry.
+
+**On "adaptive":** the gating network predicts per-query weights and is still
+available via `--fusion gate`, but it loses to tuned fixed weights on both splits
+(validation 0.7075 vs 0.7100; test 0.6865 vs 0.6900), so static weights are
+deployed. Query-dependence remains in the per-query z-scoring and in the
+cross-encoder, but branch weighting is not currently adaptive.
 
 ```
                          ┌──────────────────┐
