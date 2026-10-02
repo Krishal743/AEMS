@@ -1,6 +1,10 @@
 """Route queries by type and compute multimodal similarities.
 
-There are six branches. Visual and caption embeddings are CLIP; the passage
+There are six branches. The visual branch scores a query against each video's
+best-matching *frame* rather than the average of its 16 frames: mean-pooling
+cost the text side 0.053 R@1 before the passage branch fixed it, and it cost the
+visual side similarly (0.225 -> 0.297 alone on validation). Caption embeddings
+are CLIP; the passage
 branch keeps each video's text as separate CLIP-encoded chunks and scores a
 query against its best-matching passage (late interaction), which recovers the
 detail the mean-pooled caption vector averages away; audio embeddings are WavLM
@@ -31,6 +35,7 @@ import clip
 from src.config import (
     AEMS_MANIFEST_PATH,
     AEMS_VID_EMBEDDINGS_PATH,
+    AEMS_FRAME_EMBEDDINGS_PATH,
     AEMS_AUDIO_EMBEDDINGS_PATH,
     AEMS_TEXT_EMBEDDINGS_FUSED_PATH_TEMPLATE,
     AEMS_TEXT_CHUNKS_PATH_TEMPLATE,
@@ -55,6 +60,7 @@ BRANCHES = ("visual", "text", "chunk", "audio", "bm25", "dense")
 
 def add_index_args(parser):
     parser.add_argument("--video-embeds", default=AEMS_VID_EMBEDDINGS_PATH)
+    parser.add_argument("--frame-embeds", default=AEMS_FRAME_EMBEDDINGS_PATH)
     parser.add_argument("--audio-embeds", default=AEMS_AUDIO_EMBEDDINGS_PATH)
     parser.add_argument("--caption-embeds",
                         default=AEMS_TEXT_EMBEDDINGS_FUSED_PATH_TEMPLATE.format(split="test"))
@@ -63,10 +69,12 @@ def add_index_args(parser):
     parser.add_argument("--dense-embeds",
                         default=AEMS_DENSE_PASSAGES_PATH_TEMPLATE.format(split="test"))
     parser.add_argument("--dense-model", default=AEMS_DENSE_TEXT_MODEL)
-    parser.add_argument("--fusion", choices=["fixed", "gate"], default="fixed",
-                        help="fixed: AEMS_FUSION_WEIGHTS (default — beats the gate on "
-                             "validation since the dense branch was added); "
-                             "gate: per-query gating network")
+    parser.add_argument("--fusion", choices=["gate", "fixed"], default="gate",
+                        help="gate: the gating network (default). It is initialised from "
+                             "AEMS_FUSION_WEIGHTS and keeps that prior unless training "
+                             "improves on it, so it is never worse than fixed weights — "
+                             "on current data it reproduces them exactly. "
+                             "fixed: AEMS_FUSION_WEIGHTS directly")
     parser.add_argument("--gate-weights", default=AEMS_GATING_WEIGHTS_PATH)
     parser.add_argument("--rerank", choices=["none", "gate", "cross"], default="none",
                         help="stage-2 reranking of the shortlist: none (default, fastest); "
@@ -158,7 +166,7 @@ class ChunkIndex(NamedTuple):
 
 class SearchIndex(NamedTuple):
     video_ids: list
-    visual: torch.Tensor
+    visual: object               # ChunkIndex over frames, or a matrix for a legacy index
     text: torch.Tensor
     chunk: ChunkIndex
     audio: torch.Tensor
@@ -177,7 +185,7 @@ def chunk_index_from(db, video_ids, dim=512):
 
 
 def load_search_index(video_path, audio_path, caption_path, chunk_path=None,
-                      manifest_path=None, dense_path=None):
+                      manifest_path=None, dense_path=None, frame_path=None):
     """Load the branches; matrices are L2-normalized row-wise.
 
     chunk_path and manifest_path may be None, in which case the passage and
@@ -188,6 +196,7 @@ def load_search_index(video_path, audio_path, caption_path, chunk_path=None,
     audio_db = torch.load(audio_path, weights_only=False)
     caption_db = torch.load(caption_path, weights_only=False)
     chunk_db = torch.load(chunk_path, weights_only=False) if chunk_path else {}
+    frame_db = torch.load(frame_path, weights_only=False) if frame_path else {}
     dense_db = torch.load(dense_path, weights_only=False) if dense_path else {}
     video_ids = sorted(v for v in video_db if v in audio_db and v in caption_db)
 
@@ -214,7 +223,9 @@ def load_search_index(video_path, audio_path, caption_path, chunk_path=None,
         records = {r["video_id"]: r for r in load_metadata(manifest_path)}
         bm25 = BM25PassageIndex([lexical_fields(records[v]) for v in video_ids])
 
-    return SearchIndex(video_ids, matrix(video_db), matrix(caption_db), chunks,
+    # Frames when available (best-frame scoring), else the mean-pooled matrix.
+    visual = chunk_index_from(frame_db, video_ids) if frame_db else matrix(video_db)
+    return SearchIndex(video_ids, visual, matrix(caption_db), chunks,
                        matrix(audio_db), bm25, dense)
 
 
@@ -248,7 +259,11 @@ def compute_modal_similarities(video_matrix, caption_matrix, audio_matrix,
                                dense_query=None):
     """Return one similarity vector per branch; None where the query can't reach it."""
     def score(q, m):
-        return None if q is None else (q.to(m.device, m.dtype) @ m.T).squeeze(0)
+        if q is None:
+            return None
+        if isinstance(m, ChunkIndex):          # frames: best-matching one wins
+            return m.max_sim(q)
+        return (q.to(m.device, m.dtype) @ m.T).squeeze(0)
     sim_c = None if (clip_query is None or chunk_index is None) else chunk_index.max_sim(clip_query)
     sim_b = None
     if bm25_index is not None and query_text:

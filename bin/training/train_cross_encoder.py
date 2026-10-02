@@ -20,7 +20,7 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
-from src.config import (AEMS_MANIFEST_PATH, AEMS_VID_EMBEDDINGS_PATH, AEMS_AUDIO_EMBEDDINGS_PATH,
+from src.config import (AEMS_MANIFEST_PATH, AEMS_VID_EMBEDDINGS_PATH, AEMS_FRAME_EMBEDDINGS_PATH, AEMS_AUDIO_EMBEDDINGS_PATH,
                         AEMS_GATING_WEIGHTS_PATH, AEMS_TEXT_EMBEDDINGS_FUSED_PATH_TEMPLATE,
                         AEMS_TEXT_CHUNKS_PATH_TEMPLATE,
                         AEMS_DENSE_PASSAGES_PATH_TEMPLATE, AEMS_DENSE_TEXT_MODEL, DEVICE, set_seeds)
@@ -61,6 +61,7 @@ set_seeds(args.seed)
 # ---------------------------------------------------------------- data
 records = load_records(args.manifest, "train")
 vid_db = torch.load(AEMS_VID_EMBEDDINGS_PATH, weights_only=False)
+frame_db = torch.load(AEMS_FRAME_EMBEDDINGS_PATH, weights_only=False)
 aud_db = torch.load(AEMS_AUDIO_EMBEDDINGS_PATH, weights_only=False)
 txt_db = torch.load(AEMS_TEXT_EMBEDDINGS_FUSED_PATH_TEMPLATE.format(split="train"), weights_only=False)
 chunk_db = torch.load(AEMS_TEXT_CHUNKS_PATH_TEMPLATE.format(split="train"), weights_only=False)
@@ -91,12 +92,15 @@ def build_split(vids):
         owner += [i] * e.shape[0]
     chunks = ChunkIndex(torch.cat(chunk_rows).to(DEVICE), torch.tensor(owner, device=DEVICE), len(vids))
 
+    frame_index = chunk_index_from(frame_db, vids)
+    frame_index = frame_index._replace(rows=frame_index.rows.to(DEVICE),
+                                       owner=frame_index.owner.to(DEVICE))
     bm25 = BM25PassageIndex([lexical_fields(records[v]) for v in vids])
     dense = chunk_index_from(dense_db, vids,
                              dim=torch.as_tensor(dense_db[vids[0]]).shape[-1])
     dense = dense._replace(rows=dense.rows.to(DEVICE), owner=dense.owner.to(DEVICE))
     q_dense = dense_encoder.encode_queries(query_texts, batch_size=256).to(DEVICE)
-    sims = [zscore(q @ stack_embeddings(vid_db, vids, DEVICE).T),
+    sims = [zscore(frame_index.max_sim_batch(q)),
             zscore(q @ stack_embeddings(txt_db, vids, DEVICE).T),
             zscore(chunks.max_sim_batch(q)),
             zscore(q @ stack_embeddings(aud_db, vids, DEVICE).T),

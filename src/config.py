@@ -82,12 +82,11 @@ AEMS_PER_CANDIDATE_GATE_PATH = "models/aems_per_candidate_gate_v1.pth"
 # combined with these weights. Tuned by grid search plus coordinate ascent on the
 # validation split (never on test). The learned gate was measured against these
 # and lost (0.7075 vs 0.7100), so fixed weights are the deployed default.
-# chunk is 0.0 by design: leave-one-out on validation showed the CLIP passage
-# branch contributes -0.0009 R@1 (inside noise) once the E5 dense branch exists,
-# and dropping it slightly *raises* shortlist recall@100 (0.8734 -> 0.8762). Its
-# embeddings are still loaded, because the cross-encoder uses them to choose
-# which passages to read, so removing the branch entirely would save nothing.
-AEMS_FUSION_WEIGHTS = {"visual": 0.25, "text": 0.25, "chunk": 0.0, "audio": 0.25,
+# Retuned after the visual branch switched to best-frame scoring. Note the chunk
+# branch is back at 0.25: it measured redundant (-0.0009) against the *mean-pooled*
+# visual branch, but earns its place again once visual improved, so the earlier
+# "drop chunk" result was configuration-specific rather than general.
+AEMS_FUSION_WEIGHTS = {"visual": 0.3, "text": 0.2, "chunk": 0.25, "audio": 0.25,
                        "bm25": 0.5, "dense": 1.0}
 AEMS_VIDEO_EMBEDDINGS_TRANSFORMER_PATH = "embeddings/aems_video_embeddings_transformer_v1.pt"
 

@@ -23,7 +23,7 @@ import argparse, json, os
 import numpy as np
 import torch
 import torch.nn.functional as F
-from src.config import (AEMS_MANIFEST_PATH, AEMS_VID_EMBEDDINGS_PATH, AEMS_AUDIO_EMBEDDINGS_PATH,
+from src.config import (AEMS_MANIFEST_PATH, AEMS_VID_EMBEDDINGS_PATH, AEMS_FRAME_EMBEDDINGS_PATH, AEMS_AUDIO_EMBEDDINGS_PATH,
                         AEMS_WAVLM_FEATURES_PATH, AEMS_GATING_WEIGHTS_PATH,
                         AEMS_TEXT_EMBEDDINGS_FUSED_PATH_TEMPLATE,
                         AEMS_TEXT_EMBEDDINGS_DESC_PATH_TEMPLATE,
@@ -33,7 +33,8 @@ from src.config import (AEMS_MANIFEST_PATH, AEMS_VID_EMBEDDINGS_PATH, AEMS_AUDIO
 from src.models.gating_network import GatingNetwork
 from src.retrieval.bm25 import BM25PassageIndex
 from src.data.text_chunks import lexical_fields
-from src.routing.query_router import BRANCHES, ChunkIndex, chunk_index_from, zscore
+from src.routing.query_router import (BRANCHES, ChunkIndex, chunk_index_from,
+                                      fixed_weights, zscore)
 from src.encoders.text_retrieval import TextRetrievalEncoder
 from src.training.audio_adapter_fit import out_of_fold_audio
 from src.training.query_data import (load_records, questions, validation_split, encode_clip_text,
@@ -53,6 +54,13 @@ parser.add_argument("--epochs", type=int, default=30)
 parser.add_argument("--batch-size", type=int, default=256)
 parser.add_argument("--lr", type=float, default=1e-3)
 parser.add_argument("--hidden-dim", type=int, default=128)
+parser.add_argument("--prior-reg", type=float, default=0.0,
+                    help="L2 penalty on the gate's deviation from the prior; keeps per-query "
+                         "weights near the tuned constants unless the data really argues otherwise")
+parser.add_argument("--no-prior", action="store_true",
+                    help="train from scratch instead of starting at AEMS_FUSION_WEIGHTS; "
+                         "with the prior the untrained gate equals tuned fixed weights, "
+                         "so training starts at parity rather than rediscovering them")
 parser.add_argument("--temperature", type=float, default=0.2,
                     help="softmax temperature on fused scores (tuned on validation)")
 parser.add_argument("--folds", type=int, default=4, help="cross-fitting folds for the audio branch")
@@ -69,6 +77,7 @@ set_seeds(args.seed)
 
 records = load_records(args.manifest, "train")
 vid_db = torch.load(args.video_embeds, weights_only=False)
+frame_db = torch.load(AEMS_FRAME_EMBEDDINGS_PATH, weights_only=False)
 aud_db = torch.load(args.audio_embeds, weights_only=False)
 txt_db = torch.load(args.text_embeds_train, weights_only=False)
 chunk_db = torch.load(args.chunk_embeds_train, weights_only=False)
@@ -117,12 +126,15 @@ def branches(videos, audio_source):
     idx, gt = query_rows(rows, videos, DEVICE)
     q = q_emb[idx].to(DEVICE)
     index = chunk_index(videos)
+    frame_index = chunk_index_from(frame_db, videos)
+    frame_index = frame_index._replace(rows=frame_index.rows.to(DEVICE),
+                                       owner=frame_index.owner.to(DEVICE))
     bm25 = BM25PassageIndex([lexical_fields(records[v]) for v in videos])
     query_texts = [texts[i] for i in idx.tolist()]
     dim = torch.as_tensor(dense_db[videos[0]]).shape[-1]
     dense = chunk_index_from(dense_db, videos, dim=dim)
     dense = dense._replace(rows=dense.rows.to(DEVICE), owner=dense.owner.to(DEVICE))
-    sims = [zscore(q @ stack_embeddings(vid_db, videos, DEVICE).T),
+    sims = [zscore(frame_index.max_sim_batch(q)),
             zscore(q @ stack_embeddings(txt_db, videos, DEVICE).T),
             zscore(index.max_sim_batch(q)),
             zscore(q @ stack_embeddings(audio_source, videos, DEVICE).T),
@@ -170,13 +182,22 @@ def train_seed(seed):
     """Train one gate; returns (best val R@1, best state, best epoch)."""
     set_seeds(seed)
     gate = GatingNetwork(input_dim=512, hidden_dim=args.hidden_dim,
-                         num_modalities=len(BRANCHES)).to(DEVICE)
+                         num_modalities=len(BRANCHES),
+                         prior=None if args.no_prior else fixed_weights()).to(DEVICE)
     opt = torch.optim.AdamW(gate.parameters(), lr=args.lr, weight_decay=1e-4)
     sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, args.epochs)
     rng = np.random.default_rng(seed)
     n = fit["q"].shape[0]
-    best_r1, best_state, best_epoch = -1.0, None, -1
 
+    # Epoch 0: the untrained gate *is* the tuned fixed weights when a prior is
+    # used. Including it as a candidate means the deployed gate can never be
+    # worse than the constants it started from.
+    gate.eval()
+    with torch.no_grad():
+        best_r1 = recall_metrics(fuse(gate(val["q"]), val["sims"]), val["gt"])["R@1"]
+    best_state = {k: v.detach().cpu().clone() for k, v in gate.state_dict().items()}
+    best_epoch = 0
+    print(f"[TRAIN] seed {seed}: epoch 0 (prior) val R@1={best_r1:.4f}", flush=True)
     print(f"[TRAIN] seed {seed}: {args.epochs} epochs over {n} queries / "
           f"{len(fit_vids)} candidates", flush=True)
     for epoch in range(args.epochs):
@@ -188,6 +209,9 @@ def train_seed(seed):
             w = gate(fit["q"][idx])
             logits = fuse(w, [sim[idx] for sim in fit["sims"]]) / args.temperature
             loss = F.cross_entropy(logits, fit["gt"][idx])
+            if args.prior_reg and not args.no_prior:
+                prior = gate.log_prior.softmax(-1).to(w.device)
+                loss = loss + args.prior_reg * ((w - prior) ** 2).sum(-1).mean()
             opt.zero_grad()
             loss.backward()
             opt.step()
@@ -206,7 +230,8 @@ def train_seed(seed):
 
 def describe(state):
     gate = GatingNetwork(input_dim=512, hidden_dim=args.hidden_dim,
-                         num_modalities=len(BRANCHES)).to(DEVICE)
+                         num_modalities=len(BRANCHES),
+                         prior=None if args.no_prior else fixed_weights()).to(DEVICE)
     gate.load_state_dict(state)
     gate.eval()
     with torch.no_grad():
@@ -237,9 +262,13 @@ print(f"\n[SEEDS] val R@1 mean={np.mean(seed_r1s):.4f} "
 print(f"[BEST] val {metrics}")
 print(f"[WEIGHTS] mean {'/'.join(BRANCHES)} = {[round(x, 3) for x in mean_w]}  "
       f"std = {[round(x, 3) for x in std_w]}")
-if max(mean_w) > 0.95 or max(std_w) < 0.01:
-    print("[WARN] the gate is nearly constant — it has collapsed onto one modality "
-          "and is not adapting per query.")
+if max(mean_w) > 0.95:
+    print(f"[WARN] the gate puts {max(mean_w):.3f} of its weight on one branch — it has "
+          "collapsed onto a single modality.")
+elif max(std_w) < 0.01:
+    print("[NOTE] the gate is constant across queries: it selected its prior (the tuned "
+          "fixed weights) because no epoch improved on them. Fusion is therefore not "
+          "adaptive in practice, though the mechanism is in place and cannot do worse.")
 if best_r1 <= fixed_r1:
     print(f"[WARN] the gate ({best_r1:.4f}) does not beat tuned fixed weights "
           f"({fixed_r1:.4f}) on validation; prefer --fusion fixed.")

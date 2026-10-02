@@ -17,7 +17,12 @@ class GatingNetwork(nn.Module):
                  learnable_temp=False, learnable_scale=False, weight_reg=0.0,
                  init_tau_audio=0.5, init_tau_text=1.0, init_tau_visual=1.0,
                  init_scale_audio=0.8, init_scale_text=1.0, init_scale_visual=1.0,
-                 constant_weights=False, init_weights=None):
+                 constant_weights=False, init_weights=None, prior=None):
+        """`prior`: per-branch weights to start from (e.g. the tuned fixed
+        weights). The output layer is zeroed so the untrained gate predicts
+        exactly that prior, and training learns per-query deviations from it.
+        Without a prior the gate must rediscover good weights from scratch,
+        which is how it ended up losing to tuned constants."""
         super().__init__()
         self.num_modalities = num_modalities
         self.learnable_temp = learnable_temp
@@ -46,6 +51,12 @@ class GatingNetwork(nn.Module):
 
         self.fc3 = nn.Linear(hidden_dim // 2, num_modalities)
 
+        if prior is not None:
+            prior_t = torch.as_tensor(prior, dtype=torch.float32).clamp(min=1e-6)
+            self.register_buffer("log_prior", (prior_t / prior_t.sum()).log())
+        else:
+            self.register_buffer("log_prior", torch.zeros(num_modalities))
+
         if learnable_temp:
             self.log_tau_audio = nn.Parameter(torch.log(torch.tensor(init_tau_audio)))
             self.log_tau_text = nn.Parameter(torch.log(torch.tensor(init_tau_text)))
@@ -65,6 +76,11 @@ class GatingNetwork(nn.Module):
             self.register_buffer('scale_visual', torch.tensor(init_scale_visual))
 
         self._init_weights()
+        if prior is not None:
+            # Zero *after* _init_weights, which would otherwise re-randomise fc3
+            # and silently break the "starts exactly at the prior" guarantee.
+            nn.init.zeros_(self.fc3.weight)
+            nn.init.zeros_(self.fc3.bias)
 
     def _init_weights(self):
         for m in self.modules():
@@ -123,10 +139,10 @@ class GatingNetwork(nn.Module):
         h2 = self.ln2(h2)
         h2 = self.drop2(h2)
 
-        out = self.fc3(h2)
+        out = self.fc3(h2) + self.log_prior
 
         weights = F.softmax(out, dim=-1)
-        return weights  # (batch, 3)
+        return weights  # (batch, num_modalities)
 
     def regularization_loss(self):
         """L2 regularization toward target weights (e.g., InverseRank heuristic).

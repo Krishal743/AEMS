@@ -10,6 +10,7 @@ from src.evaluation.evaluate_retrieval import (ground_truth_ranks, hits_at_k,
                                                metrics_from_ranks, bootstrap_ci,
                                                paired_bootstrap)
 from src.config import (AEMS_MANIFEST_PATH, AEMS_VID_EMBEDDINGS_PATH, AEMS_AUDIO_EMBEDDINGS_PATH,
+                         AEMS_FRAME_EMBEDDINGS_PATH,
                          AEMS_PER_CANDIDATE_GATE_PATH,
                          AEMS_VIDEO_EMBEDDINGS_TRANSFORMER_PATH, AEMS_GATING_WEIGHTS_PATH,
                          AEMS_TEXT_EMBEDDINGS_DESC_PATH_TEMPLATE,
@@ -87,6 +88,7 @@ else:
 
 audio_db = torch.load(AEMS_AUDIO_EMBEDDINGS_PATH, weights_only=False)
 chunk_db = torch.load(AEMS_TEXT_CHUNKS_PATH_TEMPLATE.format(split="test"), weights_only=False)
+frame_db = torch.load(AEMS_FRAME_EMBEDDINGS_PATH, weights_only=False)
 dense_db = torch.load(AEMS_DENSE_PASSAGES_PATH_TEMPLATE.format(split="test"), weights_only=False)
 text_db = torch.load(TEXT_PATHS[args.text_variant].format(split="test"), weights_only=False)
 
@@ -97,7 +99,7 @@ print(f"[EMB] Text DB:   {len(text_db)} videos")
 test_video_ids = set(rec["video_id"] for rec in records)
 common_vids = sorted(
     set(video_db.keys()) & set(audio_db.keys()) & set(text_db.keys()) & set(chunk_db.keys())
-    & set(dense_db.keys()) & test_video_ids
+    & set(dense_db.keys()) & set(frame_db.keys()) & test_video_ids
 )
 print(f"[DATA] Common test videos: {len(common_vids)}")
 
@@ -161,7 +163,12 @@ text_matrix = torch.stack([normalize(text_db[v].float().to(DEVICE)) for v in com
 del video_db, audio_db, text_db
 gc.collect()
 
-sim_v = query_clip.float() @ video_matrix.T
+_frame_index = chunk_index_from(frame_db, common_vids)
+_frame_index = _frame_index._replace(rows=_frame_index.rows.to(DEVICE),
+                                     owner=_frame_index.owner.to(DEVICE))
+sim_v = _frame_index.max_sim_batch(query_clip.float().to(DEVICE)).cpu()  # best frame, not the mean
+del _frame_index
+torch.cuda.empty_cache()
 sim_t = query_clip.float() @ text_matrix.T
 sim_a = query_clip.float() @ audio_matrix.T  # audio branch is adapter-projected into CLIP text space
 
