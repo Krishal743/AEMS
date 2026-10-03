@@ -10,9 +10,9 @@ query over the gallery.
 
 Branch scores below are aggregates over all 5,097 test queries. Those queries
 reuse the wording of the text they were generated from, which inflates the two
-text branches heavily: on the 750 queries with no lexical overlap with their
+text branches heavily: on the 758 queries with no lexical overlap with their
 source, BM25 drops to 0.009 and dense to 0.033, and the strongest branch
-becomes visual at 0.055 (`bin/evaluation/eval_overlap_stratified.py`).
+becomes visual at 0.054 (`bin/evaluation/eval_overlap_stratified.py`).
 
 | Branch | Encoder | Weight | R@1 alone (test) |
 |---|---|---|---|

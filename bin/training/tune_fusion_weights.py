@@ -36,6 +36,11 @@ parser.add_argument("--floor", type=float, default=0.0,
                     help="smallest weight any branch may take. A floor keeps every branch "
                          "contributing: unconstrained ascent will zero a weak-but-correlated "
                          "branch for a fraction of a point that may not survive a bootstrap.")
+parser.add_argument("--subset", default=None,
+                    help="query-subset JSON from bin/data/build_visually_grounded_subset.py; "
+                         "restricts tuning to one tier of it")
+parser.add_argument("--tier", default="visually_grounded",
+                    help="which tier of --subset to tune on")
 parser.add_argument("--output", default="outputs/aems/fusion_weight_tuning.json")
 parser.add_argument("--seed", type=int, default=0)
 args = parser.parse_args()
@@ -47,15 +52,25 @@ usable = sources.usable([v for v, r in records.items() if questions(r)])
 _, val_vids = validation_split(usable, args.val_frac)
 print(f"[DATA] val={len(val_vids)} videos (fit split unused here; test untouched)", flush=True)
 
-texts, rows = flatten_questions(records, val_vids)
-idx, gt = query_rows(rows, val_vids, DEVICE)
-query_texts = [texts[i] for i in idx.tolist()]
+if args.subset:
+    import json
+    position = {v: i for i, v in enumerate(val_vids)}
+    chosen = [q for q in json.load(open(args.subset))["queries"]
+              if q["video_id"] in position and args.tier in q["tiers"]]
+    if not chosen:
+        raise SystemExit(f"no {args.tier!r} queries fall in the validation split")
+    query_texts = [q["question"] for q in chosen]
+    gt = torch.tensor([position[q["video_id"]] for q in chosen], device=DEVICE)
+    idx = None
+    print(f"[DATA] tuning on {len(query_texts)} {args.tier!r} queries", flush=True)
+else:
+    texts, rows = flatten_questions(records, val_vids)
+    idx, gt = query_rows(rows, val_vids, DEVICE)
+    query_texts = [texts[i] for i in idx.tolist()]
 print(f"[ENC] Encoding {len(query_texts)} validation queries...", flush=True)
 clip_q, dense_q = encode_queries(query_texts, DEVICE)
-sims = build_sims(sources, val_vids, clip_q[idx].to(DEVICE) if clip_q.shape[0] != len(idx)
-                  else clip_q.to(DEVICE), query_texts,
-                  dense_q[idx].to(DEVICE) if dense_q.shape[0] != len(idx) else dense_q.to(DEVICE),
-                  DEVICE)
+sims = build_sims(sources, val_vids, clip_q.to(DEVICE), query_texts,
+                  dense_q.to(DEVICE), DEVICE)
 
 
 def score(weights):
@@ -101,6 +116,7 @@ print("}")
 
 os.makedirs(os.path.dirname(args.output), exist_ok=True)
 with open(args.output, "w") as f:
-    json.dump({"val_R@1": best, "weights": weights, "baseline_weights": AEMS_FUSION_WEIGHTS,
+    json.dump({"val_R@1": best, "val_R@1_baseline": baseline, "weights": weights,
+               "baseline_weights": AEMS_FUSION_WEIGHTS,
                "history": history, "grid": args.grid, "seed": args.seed}, f, indent=2)
 print(f"[SAVE] {args.output}")

@@ -19,19 +19,13 @@ import numpy as np
 import torch
 
 from src.config import AEMS_MANIFEST_PATH, DEVICE, set_seeds
+from src.data.query_subsets import content_words, source_pool
 from src.evaluation.evaluate_retrieval import (ground_truth_ranks, metrics_from_ranks,
                                                bootstrap_ci, hits_at_k)
 from src.rerank import stage1
 from src.retrieval.branches import BranchSources, build_sims, encode_queries
 from src.routing.query_router import BRANCHES, fixed_weights
 from src.training.query_data import load_records, questions, flatten_questions, query_rows
-
-# Words too common to carry retrieval signal; "video" is included because it
-# appears in nearly every generated question and every description.
-STOPWORDS = set(
-    "what is the a an of in on at to for and or by with how why who when which that this "
-    "does do are was were his her its their from as be been it you we they there here "
-    "about into over under after before during video".split())
 
 parser = argparse.ArgumentParser(description="Score stratified by query/source lexical overlap")
 parser.add_argument("--manifest", default=AEMS_MANIFEST_PATH)
@@ -49,11 +43,6 @@ args = parser.parse_args()
 set_seeds(args.seed)
 
 
-def content_words(text):
-    return {w for w in re.findall(r"[a-z0-9]+", (text or "").lower())
-            if w not in STOPWORDS and len(w) > 2}
-
-
 records = load_records(args.manifest, args.split)
 sources = BranchSources.load(records, args.split)
 video_ids = sources.usable([v for v, r in records.items() if questions(r)])
@@ -69,8 +58,7 @@ fused = stage1.fuse(w.unsqueeze(0) if w.dim() == 1 else w, sims)
 ranks = ground_truth_ranks(fused, gt)
 branch_ranks = {b: ground_truth_ranks(sims[i], gt) for i, b in enumerate(BRANCHES)}
 
-source_words = {v: content_words(records[v].get("text_description"))
-                   | content_words(records[v].get("text_transcript")) for v in video_ids}
+source_words = {v: source_pool(records[v]) for v in video_ids}
 owners = [video_ids[int(g)] for g in gt.tolist()]
 overlap = np.array([
     len(content_words(q) & source_words[o]) / max(1, len(content_words(q)))

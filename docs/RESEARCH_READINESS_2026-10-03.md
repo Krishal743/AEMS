@@ -23,13 +23,13 @@ system:
 | Query slice | n | R@1 | R@10 | best branch |
 |---|---|---|---|---|
 | **All** | 5097 | **0.7161** [0.7034, 0.7279] | 0.8187 | dense 0.677 |
-| overlap = 0 | 750 | **0.0347** [0.0227, 0.0480] | 0.1013 | *visual* 0.055 |
-| overlap (0, 0.2] | 403 | 0.4417 [0.3945, 0.4888] | 0.7246 | dense 0.447 |
-| overlap (0.2, 0.6] | 2208 | 0.8025 [0.7853, 0.8184] | 0.9402 | dense 0.760 |
-| overlap > 0.6 | 1736 | **0.9643** [0.9556, 0.9729] | 0.9960 | dense 0.905 |
+| overlap = 0 | 758 | **0.0343** [0.0224, 0.0475] | 0.1003 | *visual* 0.054 |
+| overlap (0, 0.2] | 405 | 0.4568 [0.4073, 0.5037] | 0.7383 | dense 0.457 |
+| overlap (0.2, 0.6] | 2212 | 0.8038 [0.7871, 0.8205] | 0.9417 | dense 0.761 |
+| overlap > 0.6 | 1722 | **0.9646** [0.9553, 0.9733] | 0.9959 | dense 0.904 |
 
 **R@1 goes from 0.96 to 0.035 as lexical overlap goes away.** On the 750
-queries (14.7%) that share no content word with their own source text, the
+queries (14.9%) that share no content word with their own source text, the
 system is near-useless — and the best branch there is *visual* at 0.055, ahead
 of the dense retriever at 0.033.
 
@@ -131,7 +131,7 @@ which is the minimum bar for defensibility.
 
 ## Phased plan
 
-### Phase 0 — stop reporting the inflated number (2–3 days)
+### Phase 0 — stop reporting the inflated number ✅ DONE
 
 * Make the overlap stratification a first-class script
   (`bin/evaluation/eval_overlap_stratified.py`), not a scratch file.
@@ -143,7 +143,13 @@ which is the minimum bar for defensibility.
 * **Acceptance:** no table in the repo reports an aggregate score without the
   low-overlap slice beside it.
 
-### Phase 1 — a benchmark that cannot be gamed (1–2 weeks)
+### Phase 1 — a benchmark that cannot be gamed (in progress)
+
+First result in `docs/RESULTS_VISUALLY_GROUNDED_2026-10-03.md`: the
+visually-grounded tier (384 test queries) scores 0.2734 against 0.7145
+on the aggregate, the visual branch degrades least of all six, and the
+optimal weighting differs significantly by query type. Manual
+verification of the 300-query sample is the outstanding item.
 
 * Build a **visually-grounded query subset**: keep questions that require the
   video (colour, count, object, action, on-screen text), drop ones answerable

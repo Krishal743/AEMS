@@ -125,7 +125,7 @@ caveats in `docs/RESULTS_2026-10-03.md`.
 
 **Read the second column before quoting the first.** The test queries were
 generated from each video's own transcript and description, and reuse their
-wording. Scores are therefore reported alongside the 750 queries (14.7%) that
+wording. Scores are therefore reported alongside the 758 queries (14.9%) that
 share no content word with their source text — the closest thing here to a
 query someone would actually type.
 
@@ -133,8 +133,8 @@ query someone would actually type.
 |---|---|---|---|
 | — | Starting point | 0.389 | — |
 | 0 | **BM25 alone (lexical baseline)** | **0.550** | **0.009** |
-| 1 | Six-branch fusion, fixed weights | 0.716 | **0.035** |
-| 2 | + per-candidate gate → fine-tuned MiniLM (deployed) | **0.731** | ≤ 0.331 (shortlist bound) |
+| 1 | Six-branch fusion, fixed weights | 0.716 | **0.034** |
+| 2 | + per-candidate gate → fine-tuned MiniLM (deployed) | **0.731** | ≤ 0.334 (shortlist bound) |
 
 Full metrics for the deployed system: R@1 0.731, R@5 0.807, R@10 0.825, MRR
 0.767, shortlist recall@100 0.887.
@@ -145,10 +145,10 @@ Two text signals — one dense, one lexical — do nearly all the work.
 
 Four things worth knowing before quoting these numbers:
 
-- **The aggregate is largely a lexical-overlap artifact.** R@1 falls from 0.964
-  (overlap > 0.6) to 0.035 (overlap = 0). This is not only BM25: the dense
+- **The aggregate is largely a lexical-overlap artifact.** R@1 falls from 0.965
+  (overlap > 0.6) to 0.034 (overlap = 0). This is not only BM25: the dense
   branch collapses from 0.905 to 0.033 alongside it. On the zero-overlap slice
-  the strongest branch is *visual*, at 0.055, and only 33% of those queries have
+  the strongest branch is *visual*, at 0.054, and only 33% of those queries have
   their answer anywhere in the top 100 — so stage 2 cannot rescue them either.
   Reproduce with `python bin/evaluation/eval_overlap_stratified.py`.
 - **Adaptive fusion contributes very little.** The *global* gating network
