@@ -91,6 +91,29 @@ AEMS_PER_CANDIDATE_GATE_PATH = "models/aems_per_candidate_gate_v1.pth"
 # "drop chunk" result was configuration-specific rather than general.
 AEMS_FUSION_WEIGHTS = {"visual": 0.3, "text": 0.2, "chunk": 0.1, "audio": 0.1,
                        "bm25": 0.5, "dense": 1.1}
+
+# Which branches are *reliable* depends on what kind of query is being served,
+# and the weights above were tuned on text queries alone. Applying them to an
+# audio query cost 0.70 R@1: renormalizing over the reachable branches handed
+# the audio branch 14% of the mass and three near-chance branches the other 86%
+# (docs/RESULTS_MULTIMODAL_2026-10-03.md). These overrides are tuned per
+# modality by bin/training/tune_modality_weights.py on validation videos from
+# the train split.
+#
+# "text" is deliberately absent: it falls back to AEMS_FUSION_WEIGHTS above,
+# which were tuned on the deployed 16-frame gallery over all 5,097 questions.
+# The benchmark's own text row was tuned on a reduced 8-frame gallery with one
+# question per video and is not transferable to the deployed path.
+AEMS_MODALITY_WEIGHTS = {
+    "image":      {"visual": 1.0, "text": 0.2, "chunk": 0.1, "audio": 0.1, "bm25": 0.5, "dense": 1.1},
+    "video":      {"visual": 0.7, "text": 0.2, "chunk": 0.05, "audio": 0.1, "bm25": 0.5, "dense": 1.1},
+    "image+text": {"visual": 1.5, "text": 0.2, "chunk": 0.1, "audio": 0.1, "bm25": 0.5, "dense": 1.1},
+    # An audio query is a CLIP-space vector, so it *can* be scored against the
+    # visual, caption and passage branches. Tuning drove all three to zero: they
+    # are near-chance for audio (0.03-0.07 R@1) and act as noise. Reading an
+    # audio query as a CLIP query adds nothing over the audio branch alone.
+    "audio_clip": {"visual": 0.0, "text": 0.0, "chunk": 0.0, "audio": 0.1, "bm25": 0.5, "dense": 1.1},
+}
 AEMS_VIDEO_EMBEDDINGS_TRANSFORMER_PATH = "embeddings/aems_video_embeddings_transformer_v1.pt"
 
 

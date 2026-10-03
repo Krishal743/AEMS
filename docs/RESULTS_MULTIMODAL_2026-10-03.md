@@ -10,14 +10,17 @@ Gallery: all 1,022 test videos, identical for every row.
 
 ## The headline is a trap
 
-| Query | n | R@1 | R@5 | R@10 | MRR | branches reached |
-|---|---|---|---|---|---|---|
-| text | 1022 | 0.7505 | 0.8483 | 0.8757 | 0.7963 | all 6 |
-| image (1 frame) | 1022 | 0.6791 | 0.8444 | 0.8806 | 0.7535 | visual+text+chunk |
-| video (8 frames) | 1022 | 0.8523 | 0.9687 | 0.9795 | 0.9031 | visual+text+chunk |
-| **audio (10 s)** | 886 | **0.9131** | 0.9571 | 0.9729 | 0.9346 | audio |
-| audio as CLIP query | 886 | 0.2201 | 0.4413 | 0.5463 | 0.3299 | visual+text+chunk+audio |
-| image + text | 1022 | 0.8063 | 0.8953 | 0.9080 | 0.8456 | all 6 |
+With per-modality weights (`--weights modality`), against the text-tuned
+weights the router used for everything before:
+
+| Query | n | R@1 | text-tuned weights | paired Δ | branches reached |
+|---|---|---|---|---|---|
+| text | 1022 | 0.7505 | 0.7505 | — (falls back) | all 6 |
+| image (1 frame) | 1022 | **0.7329** | 0.6791 | +0.0538 [+0.0352, +0.0734] sig | visual+text+chunk |
+| video (8 frames) | 1022 | **0.8904** | 0.8523 | +0.0382 [+0.0186, +0.0558] sig | visual+text+chunk |
+| **audio (10 s)** | 886 | **0.9131** | 0.9131 | — (one branch) | audio |
+| audio as CLIP query | 886 | **0.9131** | 0.2201 | +0.6930 [+0.6625, +0.7223] sig | visual+text+chunk+audio |
+| image + text | 1022 | **0.9041** | 0.8063 | +0.0978 [+0.0793, +0.1184] sig | all 6 |
 
 Read naively this says audio and video queries beat text queries by a wide
 margin and the system is strongest in exactly the modalities it never measured.
@@ -92,24 +95,43 @@ deduplication and source attribution, and it should not be reported as the audio
 branch understanding content. The 0.0532 figure remains the honest statement of
 how much the audio branch contributes to semantic retrieval.
 
-## A real defect this exposed: the weights are wrong for non-text queries
+## The defect this exposed, and the fix
 
-`audio as CLIP query` scores **0.2201** while the audio branch alone scores
-**0.9131**. Adding information made the system four times worse.
+Under the old text-tuned weights, `audio as CLIP query` scored **0.2201** while
+the audio branch alone scored **0.9131**. Adding information made the system
+four times worse.
 
-The cause is that the deployed fixed weights were tuned on text queries, where
-the audio branch is nearly worthless and is weighted accordingly. When a query
-reaches only visual, caption, passage and audio, the weights renormalize over
-that subset and the audio branch receives 0.1/0.7 = **14%** of the mass, while
-three branches that are near-chance for an audio query receive the other 86%.
-The router renormalizes over *reachable* branches but has no notion that which
-branches are reliable depends on what the query is.
+The cause: the deployed weights were tuned on text queries, where the audio
+branch is nearly worthless and is weighted accordingly. When a query reaches
+only visual, caption, passage and audio, those weights renormalize over that
+subset and the audio branch gets 0.1/0.7 = **14%** of the mass while three
+branches that are near-chance for audio take the other 86%. The router
+renormalized over *reachable* branches but had no notion that which branches
+are *reliable* depends on what kind of query it is.
 
-This is the first measurement in the project where adaptive, query-dependent
-weighting has something substantial to do. On text queries the per-candidate
-gate is worth +0.0009, at the edge of noise. Here the gap between fixed weights
-and simply trusting the right branch is 0.69 R@1. Per-modality weights are the
-obvious fix and are not yet implemented.
+`AEMS_MODALITY_WEIGHTS` in `src/config.py` fixes this: one weight vector per
+modality, tuned by `bin/training/tune_modality_weights.py` with the same
+coordinate ascent used for the text weights, on validation videos carved from
+**train**. Test results above.
+
+Two details worth recording:
+
+* For `audio_clip` the tuner drove the visual, caption and passage weights to
+  **exactly zero**, recovering the full 0.6930. Reading an audio query as a CLIP
+  query adds nothing over the audio branch alone — the adapter's output is in
+  CLIP space geometrically but carries no usable signal against image or text
+  embeddings (0.03-0.07 R@1 alone, against a 1/886 chance rate).
+* `text` is deliberately **absent** from the table and falls back to the
+  deployed weights. The benchmark's own text row wants a higher visual weight
+  (0.5 against 0.3, +0.0070 on validation), but it was tuned on this reduced
+  8-frame gallery with one question per video and must not be transplanted onto
+  the deployed path. Whether the deployed visual weight is genuinely too low is
+  worth re-testing properly on the full gallery.
+
+This is also the first measurement where query-dependent weighting has
+something substantial to do. On text queries the per-candidate gate is worth
++0.0009, at the edge of noise; here, getting the weights right for the query's
+modality is worth up to 0.69 R@1.
 
 ## What this changes in the project's claims
 
@@ -145,3 +167,54 @@ obvious fix and are not yet implemented.
 python bin/evaluation/eval_multimodal_queries.py --bootstrap --per-branch --diagnose-frames
 python bin/evaluation/eval_multimodal_queries.py --frame-split interleave --modalities image
 ```
+
+
+## What the embeddings actually encode
+
+`bin/verification/probe_embedding_granularity.py` resolves the contradiction
+between audio→audio 0.9131 and text→audio 0.0532. For 300 test videos it
+compares three similarities per branch: two disjoint stretches of the **same
+video** (same speaker and room, different words), the **content twin** (the
+different video whose transcript is most similar — mean dense similarity 0.7496,
+so genuinely about the same subject), and a **random other** video.
+
+| Branch | same video | content twin | random other | share of the signal that is *content* |
+|---|---|---|---|---|
+| dense text (E5) | 0.9002 | 0.8595 | 0.6493 | **84%** |
+| audio (WavLM→adapter) | 0.3186 | 0.1503 | 0.0207 | 43% |
+| visual (CLIP frames) | 0.9289 | 0.7613 | 0.6531 | 39% |
+
+(Content share = (twin − random) / (same video − random): how much of the
+distance from a stranger to the video itself is already covered by another
+video about the same subject.)
+
+**The text branch encodes what is said.** A different video on the same topic
+reaches 0.8595 against the video's own other half at 0.9002 — almost all the
+way. Two speakers delivering the same content produce nearly the same text
+embedding, which is exactly what a retrieval encoder should do.
+
+**The audio branch encodes who is speaking, and where.** Sharing a recording is
+worth more than sharing a subject: same-video similarity is 2.1× the content
+twin, and the identity gap (+0.1683) is larger than the entire content signal
+(+0.1296). This is why it can retrieve its own video from a 10 s clip at 0.9131
+while being the system's worst branch (0.0532) at matching text. WavLM is a
+speech model; it represents voice and channel, not meaning.
+
+**The visual branch sits in between**, closer to the audio case: a lecture keeps
+its speaker, room and slide template throughout, so frames identify the
+recording more than the topic.
+
+### So: can they tell two speakers apart saying the same thing?
+
+| | Two speakers, same words | One speaker, different words |
+|---|---|---|
+| text / BM25 / dense | **No** — near-identical embeddings | Distinguishes them well |
+| audio | **Yes, strongly** — this is mostly what it encodes | Often confuses them |
+| visual | Yes, if they look or film differently | Often confuses them |
+
+The two failure modes are mirror images, and the system has no mechanism that
+covers both. It is also worth being clear about granularity: these are
+**whole-video** representations (one audio vector, one caption vector, 16 frame
+vectors, N passage vectors). Nothing is diarized or time-aligned, so the system
+cannot say *who* said something or *when* — only that a video, taken as a whole,
+matches.

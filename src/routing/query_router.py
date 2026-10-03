@@ -283,13 +283,26 @@ def zscore(sim):
     return (sim - sim.mean(-1, keepdim=True)) / (sim.std(-1, keepdim=True) + 1e-6)
 
 
-def fixed_weights(weights=None):
-    weights = AEMS_FUSION_WEIGHTS if weights is None else weights
+def modality_weights(modality=None):
+    """Branch weights for a query of this modality.
+
+    Falls back to AEMS_FUSION_WEIGHTS, which are the text-query weights, for any
+    modality without an override — including `None`, the deployed text path.
+    """
+    from src.config import AEMS_MODALITY_WEIGHTS
+    if modality is None:
+        return AEMS_FUSION_WEIGHTS
+    return AEMS_MODALITY_WEIGHTS.get(modality, AEMS_FUSION_WEIGHTS)
+
+
+def fixed_weights(weights=None, modality=None):
+    if weights is None:
+        weights = modality_weights(modality)
     return torch.tensor([float(weights[b]) for b in BRANCHES])
 
 
 def search(index, clip_query=None, audio_query=None, gate=None, weights=None,
-           query_text=None, dense_query=None):
+           query_text=None, dense_query=None, modality=None):
     """Score a query against the index.
 
     Returns (weights, then one similarity vector per branch) on CPU, where sims are
@@ -312,7 +325,7 @@ def search(index, clip_query=None, audio_query=None, gate=None, weights=None,
         with torch.no_grad():
             w = gate(clip_query.to(device).float()).cpu().squeeze(0)
     else:
-        w = fixed_weights(weights)
+        w = fixed_weights(weights, modality)
     w = w * mask
     if w.sum() <= 0:  # e.g. an audio-only query while the audio weight is 0
         w = mask
