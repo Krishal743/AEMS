@@ -123,29 +123,49 @@ Edit `src/config.py` for:
 AEMS test split — 5,097 QA queries over 1,022 videos. Full tables, ablations and
 caveats in `docs/RESULTS_2026-10-03.md`.
 
-| Stage | System | R@1 | R@5 | R@10 | MRR |
-|---|---|---|---|---|---|
-| — | Starting point | 0.389 | 0.509 | 0.554 | 0.449 |
-| 1 | Six-branch fusion, fixed weights | 0.716 | 0.799 | 0.819 | 0.755 |
-| 2 | **+ per-candidate gate → fine-tuned MiniLM (deployed)** | **0.731** | **0.807** | **0.825** | **0.767** |
+**Read the second column before quoting the first.** The test queries were
+generated from each video's own transcript and description, and reuse their
+wording. Scores are therefore reported alongside the 750 queries (14.7%) that
+share no content word with their source text — the closest thing here to a
+query someone would actually type.
 
-Single branches: dense E5 passages (fine-tuned) 0.678, BM25 0.550, CLIP caption
-0.389, CLIP passages 0.365, CLIP visual 0.269, WavLM audio 0.053. Two text
-signals — one dense, one lexical — do nearly all the work.
+| Stage | System | R@1 (all) | R@1 (no lexical overlap) |
+|---|---|---|---|
+| — | Starting point | 0.389 | — |
+| 0 | **BM25 alone (lexical baseline)** | **0.550** | **0.009** |
+| 1 | Six-branch fusion, fixed weights | 0.716 | **0.035** |
+| 2 | + per-candidate gate → fine-tuned MiniLM (deployed) | **0.731** | ≤ 0.331 (shortlist bound) |
 
-Three things worth knowing before quoting these numbers:
+Full metrics for the deployed system: R@1 0.731, R@5 0.807, R@10 0.825, MRR
+0.767, shortlist recall@100 0.887.
 
+Single branches (all queries): dense E5 passages (fine-tuned) 0.678, BM25 0.550,
+CLIP caption 0.389, CLIP passages 0.365, CLIP visual 0.269, WavLM audio 0.053.
+Two text signals — one dense, one lexical — do nearly all the work.
+
+Four things worth knowing before quoting these numbers:
+
+- **The aggregate is largely a lexical-overlap artifact.** R@1 falls from 0.964
+  (overlap > 0.6) to 0.035 (overlap = 0). This is not only BM25: the dense
+  branch collapses from 0.905 to 0.033 alongside it. On the zero-overlap slice
+  the strongest branch is *visual*, at 0.055, and only 33% of those queries have
+  their answer anywhere in the top 100 — so stage 2 cannot rescue them either.
+  Reproduce with `python bin/evaluation/eval_overlap_stratified.py`.
 - **Adaptive fusion contributes very little.** The *global* gating network
   (`--fusion gate`) emits the same weights for every query in practice and loses
   to tuned fixed weights (test 0.7126 vs 0.7159). The *per-candidate* gate is
   genuinely adaptive and is deployed in `--rerank chain`, but is worth about
-  +0.0009 on validation — at the edge of noise, and shrinking as the dense
-  branch improves.
-- **Only text queries are evaluated.** All 5,097 test queries are QA questions;
-  the image/video/audio query paths are unmeasured.
-- **BM25 is flattered by the benchmark.** Query words appear in their own
-  transcript 4.6x more than in a random one, so the questions reuse transcript
-  wording.
+  +0.0009 on validation — at the edge of noise.
+- **Non-text queries are measured, on a different task.** Image, video, audio
+  and mixed queries are benchmarked in
+  `docs/RESULTS_MULTIMODAL_2026-10-03.md`, but as query-by-example (a clip cut
+  from the target video, matched back to its source), which is not comparable
+  to the semantic task above.
+- **The multimodal branches contribute almost nothing** to the text task:
+  visual ≈ +0.001, audio ≈ +0.005 by leave-one-out.
+
+`docs/RESEARCH_READINESS_2026-10-03.md` assesses what this means for presenting
+the system as research, and what would have to change.
 
 Results are saved to `outputs/aems/`.
 

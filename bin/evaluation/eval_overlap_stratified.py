@@ -38,6 +38,10 @@ parser.add_argument("--manifest", default=AEMS_MANIFEST_PATH)
 parser.add_argument("--split", default="test", choices=["train", "test"])
 parser.add_argument("--edges", type=float, nargs="+", default=[0.0, 0.2, 0.6],
                     help="slice boundaries; 0.0 is reported as its own exact-zero slice")
+parser.add_argument("--rerank-top-k", type=int, default=100,
+                    help="shortlist depth whose recall is reported per slice. The "
+                         "reranker can only reorder this list, so its recall is a hard "
+                         "ceiling on anything stage 2 could recover.")
 parser.add_argument("--bootstrap-iters", type=int, default=2000)
 parser.add_argument("--output", default="outputs/aems/overlap_stratified.json")
 parser.add_argument("--seed", type=int, default=0)
@@ -79,8 +83,9 @@ for hi in [e for e in edges if e > 0] + [1.01]:
     slices.append((f"overlap ({lo:g}, {hi:g}]", (overlap > lo) & (overlap <= hi)))
     lo = hi
 
-print(f"\n{'slice':<22} {'n':>5}  {'R@1':>18}  {'R@10':>7}  {'MRR':>7}")
-print("-" * 70)
+print(f"\n{'slice':<22} {'n':>5}  {'R@1':>18}  {'R@10':>7}  {'MRR':>7}  "
+      f"{'recall@' + str(args.rerank_top_k):>10}")
+print("-" * 84)
 out = {}
 for name, mask in slices:
     if mask.sum() == 0:
@@ -90,14 +95,20 @@ for name, mask in slices:
     low, high = bootstrap_ci(hits_at_k(sel, 1), iters=args.bootstrap_iters, seed=args.seed)
     per_branch = {b: metrics_from_ranks(branch_ranks[b][torch.tensor(mask, device=DEVICE)])["R@1"]
                   for b in BRANCHES}
-    out[name] = {"n": int(mask.sum()), **m, "R@1_CI": [low, high], "per_branch_R@1": per_branch}
+    shortlist = float((sel <= args.rerank_top_k).float().mean())
+    out[name] = {"n": int(mask.sum()), **m, "R@1_CI": [low, high],
+                 f"recall@{args.rerank_top_k}": shortlist, "per_branch_R@1": per_branch}
     print(f"{name:<22} {int(mask.sum()):>5}  {m['R@1']:.4f} [{low:.4f},{high:.4f}]  "
-          f"{m['R@10']:>7.4f}  {m['MRR']:>7.4f}")
+          f"{m['R@10']:>7.4f}  {m['MRR']:>7.4f}  {shortlist:>10.4f}")
     print("        " + "  ".join(f"{b}={per_branch[b]:.3f}" for b in BRANCHES))
 
 best = max(out["overlap = 0"]["per_branch_R@1"].items(), key=lambda kv: kv[1])
+zero = out["overlap = 0"]
 print(f"\nWith no lexical overlap the strongest branch is {best[0]} at {best[1]:.4f} "
       f"(aggregate R@1 is {out['all']['R@1']:.4f}).")
+print(f"Only {zero[f'recall@{args.rerank_top_k}']:.1%} of those queries have their answer "
+      f"in the top {args.rerank_top_k}, so stage 2 cannot recover them either: a reranker "
+      f"reorders the shortlist, it does not repair it.")
 
 os.makedirs(os.path.dirname(args.output), exist_ok=True)
 with open(args.output, "w") as f:
