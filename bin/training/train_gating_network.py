@@ -31,8 +31,7 @@ from src.config import (AEMS_MANIFEST_PATH, AEMS_VID_EMBEDDINGS_PATH, AEMS_FRAME
                         AEMS_DENSE_PASSAGES_PATH_TEMPLATE, AEMS_DENSE_TEXT_MODEL,
                         AEMS_FUSION_WEIGHTS, AEMS_AUDIO_OOF_PATH, DEVICE, set_seeds)
 from src.models.gating_network import GatingNetwork
-from src.retrieval.bm25 import BM25PassageIndex
-from src.data.text_chunks import lexical_fields
+from src.retrieval.branches import BranchSources, build_sims
 from src.routing.query_router import (BRANCHES, ChunkIndex, chunk_index_from,
                                       fixed_weights, zscore)
 from src.encoders.text_retrieval import TextRetrievalEncoder
@@ -85,6 +84,9 @@ dense_db = torch.load(args.dense_embeds_train, weights_only=False)
 feat_db = torch.load(args.audio_features, weights_only=False)
 desc_db = torch.load(AEMS_TEXT_EMBEDDINGS_DESC_PATH_TEMPLATE.format(split="train"), weights_only=False)
 
+sources = BranchSources(records=records, frames=frame_db, caption=txt_db,
+                        chunks=chunk_db, audio=aud_db, dense=dense_db)
+
 usable = [v for v in records
           if v in vid_db and v in aud_db and v in txt_db and v in feat_db and v in desc_db
           and v in chunk_db and v in dense_db
@@ -125,21 +127,8 @@ def chunk_index(videos):
 def branches(videos, audio_source):
     idx, gt = query_rows(rows, videos, DEVICE)
     q = q_emb[idx].to(DEVICE)
-    index = chunk_index(videos)
-    frame_index = chunk_index_from(frame_db, videos)
-    frame_index = frame_index._replace(rows=frame_index.rows.to(DEVICE),
-                                       owner=frame_index.owner.to(DEVICE))
-    bm25 = BM25PassageIndex([lexical_fields(records[v]) for v in videos])
-    query_texts = [texts[i] for i in idx.tolist()]
-    dim = torch.as_tensor(dense_db[videos[0]]).shape[-1]
-    dense = chunk_index_from(dense_db, videos, dim=dim)
-    dense = dense._replace(rows=dense.rows.to(DEVICE), owner=dense.owner.to(DEVICE))
-    sims = [zscore(frame_index.max_sim_batch(q)),
-            zscore(q @ stack_embeddings(txt_db, videos, DEVICE).T),
-            zscore(index.max_sim_batch(q)),
-            zscore(q @ stack_embeddings(audio_source, videos, DEVICE).T),
-            zscore(bm25.score_batch(query_texts).to(DEVICE)),
-            zscore(dense.max_sim_batch(q_dense[idx].to(DEVICE)))]
+    sims = build_sims(sources, videos, q, [texts[i] for i in idx.tolist()],
+                      q_dense[idx].to(DEVICE), DEVICE, audio_db=audio_source)
     return {"q": q, "gt": gt, "sims": sims}
 
 

@@ -174,3 +174,14 @@ def test_shortlist_for_split_reports_recall():
     candidates, recall = finetune.shortlist_for_split(scores, torch.tensor([1, 1]), 2)
     assert candidates.shape == (2, 2)
     assert recall == 0.5      # query 0 shortlists its answer, query 1 does not
+
+
+def test_build_sims_covers_every_branch():
+    """build_sims must emit one matrix per BRANCHES entry, in order."""
+    import inspect
+    from src.retrieval import branches
+    source = inspect.getsource(branches.build_sims)
+    for branch in BRANCHES:
+        assert f'"{branch}"' in source, f"build_sims has no case for {branch}"
+    # and it raises rather than silently dropping one
+    assert "does not produce" in source

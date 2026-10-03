@@ -25,8 +25,7 @@ from src.config import (AEMS_MANIFEST_PATH, AEMS_VID_EMBEDDINGS_PATH, AEMS_FRAME
 from src.evaluation.evaluate_retrieval import ground_truth_ranks, metrics_from_ranks
 from src.rerank import per_candidate, stage1
 from src.routing.query_router import BRANCHES, ChunkIndex, chunk_index_from, fixed_weights, zscore
-from src.retrieval.bm25 import BM25PassageIndex
-from src.data.text_chunks import lexical_fields
+from src.retrieval.branches import BranchSources, build_sims
 from src.encoders.text_retrieval import TextRetrievalEncoder
 from src.training.audio_adapter_fit import out_of_fold_audio
 from src.training.query_data import (load_records, questions, validation_split, encode_clip_text,
@@ -58,6 +57,9 @@ dense_db = torch.load(AEMS_DENSE_PASSAGES_PATH_TEMPLATE.format(split="train"), w
 feat_db = torch.load(AEMS_WAVLM_FEATURES_PATH, weights_only=False)
 desc_db = torch.load(AEMS_TEXT_EMBEDDINGS_DESC_PATH_TEMPLATE.format(split="train"), weights_only=False)
 
+sources = BranchSources(records=records, frames=frame_db, caption=txt_db,
+                        chunks=chunk_db, audio=aud_db, dense=dense_db)
+
 usable = [v for v, r in records.items()
           if v in vid_db and v in aud_db and v in txt_db and v in chunk_db and v in dense_db
           and v in feat_db
@@ -83,25 +85,9 @@ oof = out_of_fold_audio(feat_db, desc_db, q_emb, rows, fit_vids, DEVICE, folds=a
 def branch_sims(vids, audio_source):
     idx, gt = query_rows(rows, vids, DEVICE)
     q = q_emb[idx].to(DEVICE)
-    chunk_rows, owner = [], []
-    for i, v in enumerate(vids):
-        e = F.normalize(torch.as_tensor(chunk_db[v]).float().reshape(-1, 512), dim=1)
-        chunk_rows.append(e)
-        owner += [i] * e.shape[0]
-    chunks = ChunkIndex(torch.cat(chunk_rows).to(DEVICE), torch.tensor(owner, device=DEVICE), len(vids))
-    frame_index = chunk_index_from(frame_db, vids)
-    frame_index = frame_index._replace(rows=frame_index.rows.to(DEVICE),
-                                       owner=frame_index.owner.to(DEVICE))
-    bm25 = BM25PassageIndex([lexical_fields(records[v]) for v in vids])
-    dense = chunk_index_from(dense_db, vids, dim=torch.as_tensor(dense_db[vids[0]]).shape[-1])
-    dense = dense._replace(rows=dense.rows.to(DEVICE), owner=dense.owner.to(DEVICE))
     query_texts = [texts[i] for i in idx.tolist()]
-    sims = [zscore(frame_index.max_sim_batch(q)),
-            zscore(q @ stack_embeddings(txt_db, vids, DEVICE).T),
-            zscore(chunks.max_sim_batch(q)),
-            zscore(q @ stack_embeddings(audio_source, vids, DEVICE).T),
-            zscore(bm25.score_batch(query_texts).to(DEVICE)),
-            zscore(dense.max_sim_batch(q_dense[idx].to(DEVICE)))]
+    sims = build_sims(sources, vids, q, query_texts, q_dense[idx].to(DEVICE), DEVICE,
+                      audio_db=audio_source)
     return {"q": q, "gt": gt, "sims": sims}
 
 

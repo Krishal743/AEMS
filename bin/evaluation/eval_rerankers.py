@@ -27,8 +27,7 @@ from src.rerank import cross_encoder, per_candidate, stage1
 from src.routing.query_router import (BRANCHES, ChunkIndex, chunk_index_from,
                                       fixed_weights, zscore)
 from src.encoders.text_retrieval import TextRetrievalEncoder
-from src.retrieval.bm25 import BM25PassageIndex
-from src.data.text_chunks import lexical_fields
+from src.retrieval.branches import BranchSources, build_sims
 from src.training.query_data import (load_records, questions, validation_split, encode_clip_text,
                                      flatten_questions, stack_embeddings, query_rows)
 
@@ -101,29 +100,11 @@ def build(split_name):
     idx, gt = query_rows(rows, vids, DEVICE)
     q = q_emb[idx].to(DEVICE)
     query_texts = [texts[i] for i in idx.tolist()]
-
-    chunk_rows, owner = [], []
-    for i, v in enumerate(vids):
-        e = F.normalize(torch.as_tensor(chunk_db[split][v]).float().reshape(-1, 512), dim=1)
-        chunk_rows.append(e)
-        owner += [i] * e.shape[0]
-    chunks = ChunkIndex(torch.cat(chunk_rows).to(DEVICE), torch.tensor(owner, device=DEVICE), len(vids))
-
-    frame_index = chunk_index_from(frame_db, vids)
-    frame_index = frame_index._replace(rows=frame_index.rows.to(DEVICE),
-                                       owner=frame_index.owner.to(DEVICE))
-    bm25 = BM25PassageIndex([lexical_fields(records[split][v]) for v in vids])
-    dense_index = chunk_index_from(dense_db[split], vids,
-                                   dim=torch.as_tensor(dense_db[split][vids[0]]).shape[-1])
-    dense_index = dense_index._replace(rows=dense_index.rows.to(DEVICE),
-                                       owner=dense_index.owner.to(DEVICE))
     q_dense = dense_encoder.encode_queries(query_texts, batch_size=256).to(DEVICE)
-    sims = [zscore(frame_index.max_sim_batch(q)),
-            zscore(q @ stack_embeddings(txt_db[split], vids, DEVICE).T),
-            zscore(chunks.max_sim_batch(q)),
-            zscore(q @ stack_embeddings(aud_db, vids, DEVICE).T),
-            zscore(bm25.score_batch(query_texts).to(DEVICE)),
-            zscore(dense_index.max_sim_batch(q_dense))]
+    sims = build_sims(BranchSources(records=records[split], frames=frame_db,
+                                    caption=txt_db[split], chunks=chunk_db[split],
+                                    audio=aud_db, dense=dense_db[split]),
+                      vids, q, query_texts, q_dense, DEVICE)
     scores = stage1.fuse(fixed_weights().to(DEVICE), sims)
 
     flags = []
