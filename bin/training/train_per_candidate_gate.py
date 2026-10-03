@@ -20,6 +20,7 @@ from src.config import (AEMS_MANIFEST_PATH, AEMS_VID_EMBEDDINGS_PATH, AEMS_FRAME
                         AEMS_WAVLM_FEATURES_PATH, AEMS_AUDIO_OOF_PATH,
                         AEMS_TEXT_EMBEDDINGS_FUSED_PATH_TEMPLATE,
                         AEMS_TEXT_EMBEDDINGS_DESC_PATH_TEMPLATE, AEMS_TEXT_CHUNKS_PATH_TEMPLATE,
+                        AEMS_DENSE_PASSAGES_PATH_TEMPLATE, AEMS_DENSE_TEXT_MODEL,
                         AEMS_PER_CANDIDATE_GATE_PATH, DEVICE, set_seeds)
 from src.evaluation.evaluate_retrieval import ground_truth_ranks, metrics_from_ranks
 from src.rerank import per_candidate, stage1
