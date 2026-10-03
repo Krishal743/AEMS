@@ -10,22 +10,29 @@ query over the gallery.
 
 | Branch | Encoder | Weight | R@1 alone (test) |
 |---|---|---|---|
-| dense | E5-base passages (retrieval-trained) | 1.0 | 0.624 |
+| dense | E5-base passages, AEMS fine-tuned | 1.1 | 0.678 |
 | bm25 | lexical over passages + title/description/tags | 0.5 | 0.550 |
-| text | CLIP caption (description + transcript, mean-pooled) | 0.25 | 0.389 |
-| visual | CLIP ViT-B/32 over 16 frames, mean-pooled | 0.25 | 0.194 |
-| audio | WavLM-Large → adapter → CLIP text space | 0.25 | 0.053 |
-| chunk | CLIP passages, best-match | 0.0 (measured redundant) | 0.365 |
+| visual | CLIP ViT-B/32 frames, best-frame max-sim | 0.3 | 0.269 |
+| text | CLIP caption (description + transcript, mean-pooled) | 0.2 | 0.389 |
+| chunk | CLIP passages, best-match | 0.1 | 0.365 |
+| audio | WavLM-Large → adapter → CLIP text space | 0.1 | 0.053 |
 
 Four branches share CLIP text space (the adapter projects audio into it), while
 BM25 has no vector space at all and E5 has its own; z-scoring is what makes them
 comparable, not shared geometry.
 
-**On "adaptive":** the gating network predicts per-query weights and is still
-available via `--fusion gate`, but it loses to tuned fixed weights on both splits
-(validation 0.7075 vs 0.7100; test 0.6865 vs 0.6900), so static weights are
-deployed. Query-dependence remains in the per-query z-scoring and in the
-cross-encoder, but branch weighting is not currently adaptive.
+**On "adaptive":** two models are called gating here and they differ.
+
+The *global* gating network (`--fusion gate`) predicts one weight vector per
+query, but the deployed checkpoint emits the same vector for every query (the
+harness reports ±0.0000 on all six weights), so in practice it is a learned
+fixed weighting — and it loses to directly tuned weights (test 0.7126 vs
+0.7159).
+
+The *per-candidate* gate is genuinely query- and candidate-dependent and is
+deployed inside `--rerank chain`. Retrained on six branches it reaches
+validation 0.7352 ± 0.0007 against 0.7343 for stage 1 alone: a real but
+noise-level +0.0009. Its headroom shrank as the dense branch improved.
 
 ```
                          ┌──────────────────┐

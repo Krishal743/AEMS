@@ -84,7 +84,7 @@ team23/
 ### Core Components (src/)
 - **Models**: Gating networks & temporal transformers
 - **Encoders**: CLIP (vision/text) and WavLM-Large + adapter (audio)
-- **Fusion**: per-query z-scored branch similarities, fixed weights (`AEMS_FUSION_WEIGHTS`) or the gating network (`--fusion gate`)
+- **Fusion**: per-query z-scored branch similarities, fixed weights (`AEMS_FUSION_WEIGHTS`, tuned by `bin/training/tune_fusion_weights.py`) or the gating network (`--fusion gate`)
 - **Data**: Dataset loaders and metadata utilities
 - **Routing**: Query encoding and multimodal similarity computation
 - **Evaluation**: Retrieval metrics and analysis
@@ -121,23 +121,26 @@ Edit `src/config.py` for:
 ## 📈 Results
 
 AEMS test split — 5,097 QA queries over 1,022 videos. Full tables, ablations and
-caveats in `docs/RESULTS_2026-10-02.md`.
+caveats in `docs/RESULTS_2026-10-03.md`.
 
 | Stage | System | R@1 | R@5 | R@10 | MRR |
 |---|---|---|---|---|---|
 | — | Starting point | 0.389 | 0.509 | 0.554 | 0.449 |
-| 1 | Six-branch fusion, fixed weights | 0.687 | 0.774 | 0.794 | 0.728 |
-| 2 | **+ fine-tuned cross-encoder (deployed)** | **0.712** | **0.786** | **0.805** | **0.748** |
+| 1 | Six-branch fusion, fixed weights | 0.716 | 0.799 | 0.819 | 0.755 |
+| 2 | **+ per-candidate gate → fine-tuned MiniLM (deployed)** | **0.731** | **0.807** | **0.825** | **0.767** |
 
-Single branches: dense E5 passages 0.624, BM25 0.550, CLIP caption 0.389, CLIP
-passages 0.365, CLIP visual 0.194, WavLM audio 0.053. Two text signals — one
-dense, one lexical — do nearly all the work.
+Single branches: dense E5 passages (fine-tuned) 0.678, BM25 0.550, CLIP caption
+0.389, CLIP passages 0.365, CLIP visual 0.269, WavLM audio 0.053. Two text
+signals — one dense, one lexical — do nearly all the work.
 
 Three things worth knowing before quoting these numbers:
 
-- **Fusion is not adaptive.** The gating network is implemented and available
-  (`--fusion gate`) but loses to tuned fixed weights on both splits (test 0.6865
-  vs 0.6873), so static weights are deployed.
+- **Adaptive fusion contributes very little.** The *global* gating network
+  (`--fusion gate`) emits the same weights for every query in practice and loses
+  to tuned fixed weights (test 0.7126 vs 0.7159). The *per-candidate* gate is
+  genuinely adaptive and is deployed in `--rerank chain`, but is worth about
+  +0.0009 on validation — at the edge of noise, and shrinking as the dense
+  branch improves.
 - **Only text queries are evaluated.** All 5,097 test queries are QA questions;
   the image/video/audio query paths are unmeasured.
 - **BM25 is flattered by the benchmark.** Query words appear in their own
