@@ -8,7 +8,7 @@ from src.explainability.explain_retrieval import (
     format_explanation,
 )
 from src.routing.query_router import (
-    add_index_args, load_search_index, load_fusion_gate, load_clip,
+    add_index_args, encode_dense_query, load_index_from_args, load_fusion_gate, load_clip,
     encode_text_query, rerank_and_report, search,
 )
 
@@ -29,8 +29,7 @@ def main():
     print()
 
     print("[LOAD] Search index...", end=" ", flush=True)
-    index = load_search_index(args.video_embeds, args.audio_embeds, args.caption_embeds,
-                              args.chunk_embeds)
+    index = load_index_from_args(args)
     print(f"{len(index.video_ids)} candidates")
 
     gate = load_fusion_gate(args, DEVICE)
@@ -42,7 +41,9 @@ def main():
     print("done")
 
     print("[SEARCH] Scoring and fusing...", end=" ", flush=True)
-    w, *sims = search(index, clip_query=clip_query, audio_query=audio_query, gate=gate)
+    dense_query = encode_dense_query(args.query, DEVICE) if args.query else None
+    w, *sims = search(index, clip_query=clip_query, audio_query=audio_query, gate=gate,
+                      query_text=args.query, dense_query=dense_query)
     rerank_and_report(args, w, sims, index, clip_query, query_text=args.query,
                       device=DEVICE)
     print("done")

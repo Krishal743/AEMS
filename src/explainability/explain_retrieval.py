@@ -9,7 +9,14 @@ import torch
 
 from src.routing.query_router import BRANCHES
 
-LABELS = {"visual": "visual", "text": "caption", "chunk": "passage", "audio": "audio"}
+# Display names; any branch without one falls back to its own name, so adding a
+# branch cannot break the explanation output.
+LABELS = {"visual": "visual", "text": "caption", "chunk": "passage", "audio": "audio",
+          "bm25": "lexical", "dense": "dense"}
+
+
+def label(branch):
+    return LABELS.get(branch, branch)
 
 
 def explain_modality_contributions(weights, sims, video_ids, top_k=5):
@@ -53,18 +60,18 @@ def explain_ranking_difference(rank1, rank2):
 
 
 def format_explanation(contributions, gating, top_k=5):
-    weights = ", ".join(f"{LABELS[b]}={gating[f'w_{b}']:.4f}" for b in BRANCHES)
+    weights = ", ".join(f"{label(b)}={gating[f'w_{b}']:.4f}" for b in BRANCHES)
     lines = [f"Gating weights: [{weights}]",
-             f"Dominant modality: {LABELS[gating['dominant_modality']]} "
+             f"Dominant modality: {label(gating['dominant_modality'])} "
              f"({gating['dominant_weight']:.2f}, spread={gating['confidence_spread']:.2f})",
              "", f"Top-{top_k} results:"]
     for i, c in enumerate(contributions):
         lines.append(f"  {i + 1}. {c['video_id']}  score={c['fused_score']:.4f}")
         for b in BRANCHES:
-            lines.append(f"       {LABELS[b]:<8}={c[f'{b}_score']:+.4f} ({c[f'{b}_pct']:.1f}%)")
+            lines.append(f"       {label(b):<8}={c[f'{b}_score']:+.4f} ({c[f'{b}_pct']:.1f}%)")
     if len(contributions) >= 2:
         rd = explain_ranking_difference(contributions[0], contributions[1])
         delta = rd["per_modality_delta"][rd["deciding_modality"]]
         lines.append(f"  Rank1 vs Rank2: deciding modality = "
-                     f"{LABELS[rd['deciding_modality']]} (Δ={delta:+.4f})")
+                     f"{label(rd['deciding_modality'])} (Δ={delta:+.4f})")
     return "\n".join(lines)

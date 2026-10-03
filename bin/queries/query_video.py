@@ -15,7 +15,7 @@ from src.explainability.explain_retrieval import (
 )
 from src.routing.query_router import (
     add_index_args, check_rerank_supported, rerank_and_report,
-    load_search_index, load_fusion_gate, encode_video_query, search,
+    load_index_from_args, load_fusion_gate, encode_video_query, search,
 )
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
@@ -46,8 +46,7 @@ def main():
     args = parser.parse_args()
     check_rerank_supported(parser, args, query_text=None)
 
-    index = load_search_index(args.video_embeds, args.audio_embeds, args.caption_embeds,
-                              args.chunk_embeds)
+    index = load_index_from_args(args)
     print(f"Candidates: {len(index.video_ids)} videos")
     gate = load_fusion_gate(args, DEVICE)
 

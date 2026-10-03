@@ -4,7 +4,7 @@ import argparse, csv, os
 import torch
 from src.explainability.explain_retrieval import explain_gating_decision
 from src.routing.query_router import (
-    add_index_args, load_search_index, load_gate, load_clip,
+    add_index_args, load_index_from_args, load_gate, load_clip,
     encode_text_query, search,
 )
 
@@ -42,8 +42,7 @@ def main():
 
     os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-    index = load_search_index(args.video_embeds, args.audio_embeds, args.caption_embeds,
-                              args.chunk_embeds)
+    index = load_index_from_args(args)
     gate = load_gate(args.gate_weights, DEVICE)  # always the gate: that's what is under test
     clip_model = load_clip(DEVICE)
 

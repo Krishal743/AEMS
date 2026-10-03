@@ -35,11 +35,13 @@ parser.add_argument("--seed", type=int, default=42)
 parser.add_argument("--bootstrap", action="store_true", help="Compute bootstrap confidence intervals")
 parser.add_argument("--bootstrap-iters", type=int, default=1000)
 parser.add_argument("--num-queries", type=int, default=None, help="Limit queries for debugging")
-parser.add_argument("--rerank", choices=["none", "gate", "cross"], default="none",
+parser.add_argument("--rerank", choices=["none", "gate", "cross", "chain"], default="none",
                     help="also evaluate the two-stage system with this stage-2 reranker")
 parser.add_argument("--rerank-top-k", type=int, default=100, help="shortlist depth to rerank")
 parser.add_argument("--rerank-passages", type=int, default=8)
-parser.add_argument("--rerank-alpha", type=float, default=0.3)
+parser.add_argument("--rerank-alpha", type=float, default=0.5)
+parser.add_argument("--rerank-beta", type=float, default=0.5,
+                    help="per-candidate gate weight inside --rerank chain")
 parser.add_argument("--cross-encoder", default=None,
                     help="defaults to the fine-tuned checkpoint when present")
 parser.add_argument("--per-candidate-gate", default=AEMS_PER_CANDIDATE_GATE_PATH)
@@ -249,17 +251,21 @@ if args.rerank != "none":
     print(f"[RERANK] {args.rerank}: shortlist K={args.rerank_top_k}, "
           f"stage-1 recall@K={shortlist_utils.candidate_recall(candidates, gt_pos):.4f}", flush=True)
 
-    if args.rerank == "gate":
+    gated_z = None
+    if args.rerank in ("gate", "chain"):
         from src.rerank import per_candidate
         model = per_candidate.load(args.per_candidate_gate, DEVICE, n_branches=len(branch_z))
         feats = shortlist_utils.gather_branch_scores(
-            [zscore(s) for s in (sim_v, sim_t, sim_c, sim_a, sim_b, sim_d)],
+            [zscore(s).to(DEVICE) for s in (sim_v, sim_t, sim_c, sim_a, sim_b, sim_d)],
             candidates.to(DEVICE))
         with torch.no_grad():
-            rescored = per_candidate.score(model, query_clip.float().to(DEVICE), feats).cpu()
-        systems["reranked_gate"] = shortlist_utils.rerank_scores_to_ranking(
-            stage1_scores, candidates, rescored)
-    else:
+            gated = per_candidate.score(model, query_clip.float().to(DEVICE), feats).cpu()
+        if args.rerank == "gate":
+            systems["reranked_gate"] = shortlist_utils.rerank_scores_to_ranking(
+                stage1_scores, candidates, gated)
+        else:
+            gated_z = (gated - gated.mean(1, keepdim=True)) / (gated.std(1, keepdim=True) + 1e-6)
+    if args.rerank in ("cross", "chain"):
         from src.rerank import cross_encoder
         records = {r["video_id"]: r for r in load_metadata(args.manifest)}
         chunk_db_rr = torch.load(AEMS_TEXT_CHUNKS_PATH_TEMPLATE.format(split="test"),
@@ -274,7 +280,9 @@ if args.rerank != "none":
                                         device=DEVICE).cpu()
         z = (rescored - rescored.mean(1, keepdim=True)) / (rescored.std(1, keepdim=True) + 1e-6)
         base = stage1_scores.gather(1, candidates)
-        systems["reranked_cross"] = shortlist_utils.rerank_scores_to_ranking(
+        if gated_z is not None:
+            base = base + args.rerank_beta * gated_z
+        systems["reranked_" + args.rerank] = shortlist_utils.rerank_scores_to_ranking(
             stage1_scores, candidates, base + args.rerank_alpha * z)
         del ce_model, tokenizer, store
         torch.cuda.empty_cache()

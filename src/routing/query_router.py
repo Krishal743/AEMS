@@ -76,18 +76,21 @@ def add_index_args(parser):
                              "on current data it reproduces them exactly. "
                              "fixed: AEMS_FUSION_WEIGHTS directly")
     parser.add_argument("--gate-weights", default=AEMS_GATING_WEIGHTS_PATH)
-    parser.add_argument("--rerank", choices=["none", "gate", "cross"], default="none",
-                        help="stage-2 reranking of the shortlist: none (default, fastest); "
-                             "gate: per-candidate gating network; cross: cross-encoder "
-                             "(reads query and passage together — much better, much slower)")
+    parser.add_argument("--rerank", choices=["none", "gate", "cross", "chain"], default="chain",
+                        help="stage-2 reranking of the shortlist. chain (default): the "
+                             "per-candidate gate reweights branches per candidate, then the "
+                             "cross-encoder blends on top; cross: cross-encoder only; "
+                             "gate: gating only (free, +0.004); none: stage 1 only")
     parser.add_argument("--rerank-top-k", type=int, default=100, help="shortlist depth to rerank")
     parser.add_argument("--per-candidate-gate", default=AEMS_PER_CANDIDATE_GATE_PATH)
     parser.add_argument("--cross-encoder", default=CROSS_ENCODER_MODEL)
     parser.add_argument("--rerank-passages", type=int, default=8,
                         help="passages per candidate scored by the cross-encoder; reading more "
                              "of each candidate beat shortlisting more of them on validation")
-    parser.add_argument("--rerank-alpha", type=float, default=0.3,
+    parser.add_argument("--rerank-alpha", type=float, default=0.5,
                         help="weight of the cross-encoder score against the stage-1 score")
+    parser.add_argument("--rerank-beta", type=float, default=0.5,
+                        help="weight of the per-candidate gate score in --rerank chain")
     parser.add_argument("--top-k", type=int, default=5)
 
 
@@ -336,7 +339,7 @@ def apply_rerank(args, weights, sims, index, clip_query=None, query_text=None,
     scores = fused.unsqueeze(0)
     candidates = shortlist.top_k_candidates(scores, args.rerank_top_k)
 
-    if args.rerank == "gate":
+    if args.rerank in ("gate", "chain"):
         from src.rerank import per_candidate
         if not os.path.exists(args.per_candidate_gate):
             print(f"[WARN] {args.per_candidate_gate} not found; skipping reranking")
@@ -344,8 +347,12 @@ def apply_rerank(args, weights, sims, index, clip_query=None, query_text=None,
         model = per_candidate.load(args.per_candidate_gate, device, n_branches=len(BRANCHES))
         feats = shortlist.gather_branch_scores([s.unsqueeze(0) for s in sims], candidates)
         with torch.no_grad():
-            rescored = per_candidate.score(model, clip_query.to(device), feats.to(device)).cpu()
-        return shortlist.rerank_scores_to_ranking(scores, candidates, rescored).squeeze(0)
+            gated = per_candidate.score(model, clip_query.to(device), feats.to(device)).cpu()
+        if args.rerank == "gate":
+            return shortlist.rerank_scores_to_ranking(scores, candidates, gated).squeeze(0)
+        gated_z = (gated - gated.mean()) / (gated.std() + 1e-6)
+    else:
+        gated_z = None
 
     from src.rerank import cross_encoder
     if query_text is None or records is None or chunk_db is None:
@@ -359,6 +366,8 @@ def apply_rerank(args, weights, sims, index, clip_query=None, query_text=None,
                                     n_passages=args.rerank_passages, device=device).cpu()
     z = (rescored - rescored.mean()) / (rescored.std() + 1e-6)
     base = scores.gather(1, candidates)
+    if gated_z is not None:                       # chain: gate first, cross-encoder on top
+        base = base + args.rerank_beta * gated_z
     return shortlist.rerank_scores_to_ranking(scores, candidates,
                                               base + args.rerank_alpha * z).squeeze(0)
 
@@ -370,9 +379,10 @@ def check_rerank_supported(parser, args, query_text):
     video-only query cannot use it. Failing loudly beats silently ignoring the
     flag and reporting unreranked results as if they were reranked.
     """
-    if args.rerank == "cross" and not query_text:
-        parser.error("--rerank cross needs query text: the cross-encoder reads the query "
-                     "against transcript passages. Use --rerank gate for image/video queries.")
+    if args.rerank in ("cross", "chain") and not query_text:
+        parser.error(f"--rerank {args.rerank} needs query text: the cross-encoder reads the "
+                     "query against transcript passages. Use --rerank gate (which needs only "
+                     "branch scores) for image/video queries.")
 
 
 def rerank_and_report(args, weights, sims, index, clip_query, query_text=None,
@@ -382,7 +392,7 @@ def rerank_and_report(args, weights, sims, index, clip_query, query_text=None,
         return None
 
     records, chunk_db = None, None
-    if args.rerank == "cross":
+    if args.rerank in ("cross", "chain"):
         from src.data.metadata import load_metadata
         records = {r["video_id"]: r for r in load_metadata(manifest_path or AEMS_MANIFEST_PATH)}
         chunk_db = torch.load(args.chunk_embeds, weights_only=False)
@@ -396,3 +406,26 @@ def rerank_and_report(args, weights, sims, index, clip_query, query_text=None,
     for rank, idx in enumerate(order.tolist(), 1):
         print(f"  {rank}. {index.video_ids[idx]}  score={ranking[idx]:.4f}")
     return ranking
+
+
+def load_index_from_args(args):
+    """Build the full search index from parsed CLI args.
+
+    One place that knows which paths the index needs. The CLIs previously called
+    load_search_index with only four of them, which silently dropped the BM25,
+    dense and frame branches — the two strongest among them — leaving
+    interactive search markedly worse than the evaluated system.
+    """
+    return load_search_index(args.video_embeds, args.audio_embeds, args.caption_embeds,
+                             chunk_path=args.chunk_embeds,
+                             manifest_path=getattr(args, "manifest", AEMS_MANIFEST_PATH),
+                             dense_path=getattr(args, "dense_embeds", None),
+                             frame_path=getattr(args, "frame_embeds", None))
+
+
+def encode_dense_query(text, device, model=None):
+    """Query vector for the dense branch, which lives in its own encoder's space."""
+    from src.encoders.text_retrieval import TextRetrievalEncoder
+    from src.config import AEMS_DENSE_TEXT_MODEL
+    encoder = TextRetrievalEncoder(model or AEMS_DENSE_TEXT_MODEL, device)
+    return encoder.encode_queries([text])

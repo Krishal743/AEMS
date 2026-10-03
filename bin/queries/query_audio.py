@@ -14,7 +14,7 @@ from src.explainability.explain_retrieval import (
 )
 from src.encoders.wavlm_encode import WavLMEncoder
 from src.routing.query_router import (
-    add_index_args, load_search_index, load_adapter, encode_audio_query, search,
+    add_index_args, load_index_from_args, load_adapter, encode_audio_query, search,
 )
 from src.config import AEMS_AUDIO_ADAPTER_PATH
 
@@ -28,8 +28,7 @@ def main():
     add_index_args(parser)
     args = parser.parse_args()
 
-    index = load_search_index(args.video_embeds, args.audio_embeds, args.caption_embeds,
-                              args.chunk_embeds)
+    index = load_index_from_args(args)
     print(f"Candidates: {len(index.video_ids)} videos")
 
     audio_query = encode_audio_query(WavLMEncoder(device=DEVICE),
