@@ -26,7 +26,7 @@ from src.evaluation.evaluate_retrieval import ground_truth_ranks, metrics_from_r
 from src.rerank import per_candidate, stage1
 from src.routing.query_router import BRANCHES, ChunkIndex, chunk_index_from, fixed_weights, zscore
 from src.retrieval.branches import BranchSources, build_sims
-from src.encoders.text_retrieval import TextRetrievalEncoder
+from src.encoders.text_retrieval import load_dense_encoder
 from src.training.audio_adapter_fit import out_of_fold_audio
 from src.training.query_data import (load_records, questions, validation_split, encode_clip_text,
                                      flatten_questions, stack_embeddings, query_rows)
@@ -72,7 +72,7 @@ texts, rows = flatten_questions(records, fit_vids + val_vids)
 q_emb = encode_clip_text(texts, DEVICE)
 
 print(f"[ENC] Encoding QA questions with {AEMS_DENSE_TEXT_MODEL} (dense branch)...", flush=True)
-_dense_encoder = TextRetrievalEncoder(AEMS_DENSE_TEXT_MODEL, DEVICE)
+_dense_encoder = load_dense_encoder(DEVICE)
 q_dense = _dense_encoder.encode_queries(texts, batch_size=256)
 del _dense_encoder
 torch.cuda.empty_cache()

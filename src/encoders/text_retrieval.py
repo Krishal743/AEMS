@@ -30,6 +30,21 @@ MODELS = {
 }
 
 
+def load_dense_encoder(device, key=None, name=None):
+    """The dense-branch encoder, preferring AEMS fine-tuned weights when present.
+
+    Every caller must go through this: queries have to be encoded by the same
+    weights the passages were, and seven call sites each building their own
+    encoder is how the branch set silently drifted out of sync before.
+    """
+    import os
+    from src.config import AEMS_DENSE_MODEL_PATH, AEMS_DENSE_TEXT_MODEL
+
+    if name is None and os.path.isdir(AEMS_DENSE_MODEL_PATH):
+        name = AEMS_DENSE_MODEL_PATH
+    return TextRetrievalEncoder(key or AEMS_DENSE_TEXT_MODEL, device, name=name)
+
+
 def _pool(hidden, attention_mask, how):
     if how == "cls":
         return hidden[:, 0]
@@ -40,12 +55,18 @@ def _pool(hidden, attention_mask, how):
 class TextRetrievalEncoder:
     """Encodes queries and passages into one L2-normalized retrieval space."""
 
-    def __init__(self, key="bge", device="cuda", dtype=torch.float16, max_length=512):
+    def __init__(self, key="bge", device="cuda", dtype=torch.float16, max_length=512,
+                 name=None):
+        """`name` loads weights from elsewhere (e.g. a fine-tuned checkpoint) while
+        keeping `key`'s prefix and pooling conventions, which must match what the
+        passages were encoded with."""
         from transformers import AutoModel, AutoTokenizer
 
         if key not in MODELS:
             raise ValueError(f"unknown text encoder {key!r}; choose from {sorted(MODELS)}")
-        self.config = MODELS[key]
+        self.config = dict(MODELS[key])
+        if name:
+            self.config["name"] = name
         self.key = key
         self.device = device
         self.max_length = max_length

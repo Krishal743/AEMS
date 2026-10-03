@@ -3,7 +3,7 @@ import clip
 import numpy as np
 from src.routing.query_router import (load_gate, zscore, fixed_weights, ChunkIndex,
                                       chunk_index_from, BRANCHES)
-from src.encoders.text_retrieval import TextRetrievalEncoder
+from src.encoders.text_retrieval import load_dense_encoder
 from src.retrieval.bm25 import BM25PassageIndex
 from src.data.text_chunks import lexical_fields
 from src.evaluation.evaluate_retrieval import (ground_truth_ranks, hits_at_k,
@@ -184,7 +184,7 @@ chunk_index = ChunkIndex(torch.cat(chunk_rows).to(DEVICE), torch.tensor(chunk_ow
 sim_c = chunk_index.max_sim_batch(query_clip.float().to(DEVICE)).cpu()
 
 print(f"[SIM] Scoring the dense branch ({AEMS_DENSE_TEXT_MODEL})...", flush=True)
-_dense_encoder = TextRetrievalEncoder(AEMS_DENSE_TEXT_MODEL, DEVICE)
+_dense_encoder = load_dense_encoder(DEVICE)
 query_dense = _dense_encoder.encode_queries(queries, batch_size=256)
 del _dense_encoder
 torch.cuda.empty_cache()

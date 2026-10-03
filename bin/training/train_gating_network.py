@@ -34,7 +34,7 @@ from src.models.gating_network import GatingNetwork
 from src.retrieval.branches import BranchSources, build_sims
 from src.routing.query_router import (BRANCHES, ChunkIndex, chunk_index_from,
                                       fixed_weights, zscore)
-from src.encoders.text_retrieval import TextRetrievalEncoder
+from src.encoders.text_retrieval import load_dense_encoder
 from src.training.audio_adapter_fit import out_of_fold_audio
 from src.training.query_data import (load_records, questions, validation_split, encode_clip_text,
                                      flatten_questions, stack_embeddings, query_rows, recall_metrics)
@@ -99,7 +99,7 @@ texts, rows = flatten_questions(records, fit_vids + val_vids)
 q_emb = encode_clip_text(texts, DEVICE)
 
 print(f"[ENC] Encoding QA questions with {args.dense_model} (dense branch)...", flush=True)
-_dense_encoder = TextRetrievalEncoder(args.dense_model, DEVICE)
+_dense_encoder = load_dense_encoder(DEVICE, args.dense_model)
 q_dense = _dense_encoder.encode_queries(texts, batch_size=256)
 del _dense_encoder
 torch.cuda.empty_cache()

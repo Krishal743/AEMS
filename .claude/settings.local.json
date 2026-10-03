@@ -2,7 +2,17 @@
   "permissions": {
     "allow": [
       "Bash(git add *)",
-      "Bash(git commit -m ' *)"
+      "Bash(git commit -m ' *)",
+      "Bash(git push *)",
+      "Bash(git remote *)",
+      "Bash(git ls-remote *)",
+      "Bash(gh auth *)",
+      "Bash(git config *)",
+      "Bash(timeout 10 git push origin refs/heads/recovery-v2:refs/heads/recovery-v2)",
+      "Bash(env)",
+      "Bash(code --list-extensions)",
+      "Bash(uv tool *)",
+      "Bash(graphify install *)"
     ]
   }
 }

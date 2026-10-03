@@ -26,7 +26,7 @@ from src.evaluation.evaluate_retrieval import (ground_truth_ranks, hits_at_k, me
 from src.rerank import cross_encoder, per_candidate, stage1
 from src.routing.query_router import (BRANCHES, ChunkIndex, chunk_index_from,
                                       fixed_weights, zscore)
-from src.encoders.text_retrieval import TextRetrievalEncoder
+from src.encoders.text_retrieval import load_dense_encoder
 from src.retrieval.branches import BranchSources, build_sims
 from src.training.query_data import (load_records, questions, validation_split, encode_clip_text,
                                      flatten_questions, stack_embeddings, query_rows)
@@ -69,7 +69,7 @@ chunk_db = {s: torch.load(AEMS_TEXT_CHUNKS_PATH_TEMPLATE.format(split=s), weight
 dense_db = {s: torch.load(AEMS_DENSE_PASSAGES_PATH_TEMPLATE.format(split=s), weights_only=False)
             for s in ("train", "test")}
 # Stage 1 uses the deployed fixed weights, which beat the gate on validation.
-dense_encoder = TextRetrievalEncoder(AEMS_DENSE_TEXT_MODEL, DEVICE)
+dense_encoder = load_dense_encoder(DEVICE)
 
 
 def usable(split):

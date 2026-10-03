@@ -28,7 +28,7 @@ from src.evaluation.evaluate_retrieval import ground_truth_ranks, metrics_from_r
 from src.rerank import cross_encoder, finetune, stage1
 from src.routing.query_router import ChunkIndex, chunk_index_from, fixed_weights, zscore
 from src.retrieval.branches import BranchSources, build_sims
-from src.encoders.text_retrieval import TextRetrievalEncoder
+from src.encoders.text_retrieval import load_dense_encoder
 from src.training.query_data import (load_records, questions, validation_split, encode_clip_text,
                                      flatten_questions, stack_embeddings, query_rows)
 
@@ -77,7 +77,7 @@ print(f"[DATA] fit={len(fit_vids)} val={len(val_vids)} (test split untouched)", 
 
 # Stage 1 uses the deployed fixed weights, which beat the gate on validation and
 # were not fitted on these queries.
-dense_encoder = TextRetrievalEncoder(AEMS_DENSE_TEXT_MODEL, DEVICE)
+dense_encoder = load_dense_encoder(DEVICE)
 
 
 def build_split(vids):

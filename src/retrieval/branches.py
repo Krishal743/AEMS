@@ -84,11 +84,12 @@ def build_sims(sources, video_ids, clip_queries, query_texts, dense_queries, dev
 
 def encode_queries(texts, device, dense_model=None):
     """(clip, dense) query matrices — the two spaces the branches are scored in."""
-    from src.encoders.text_retrieval import TextRetrievalEncoder
     from src.training.query_data import encode_clip_text
 
+    from src.encoders.text_retrieval import load_dense_encoder
+
     clip = encode_clip_text(texts, device)
-    encoder = TextRetrievalEncoder(dense_model or AEMS_DENSE_TEXT_MODEL, device)
+    encoder = load_dense_encoder(device, dense_model)
     dense = encoder.encode_queries(texts, batch_size=256)
     del encoder
     if device == "cuda":

@@ -425,7 +425,6 @@ def load_index_from_args(args):
 
 def encode_dense_query(text, device, model=None):
     """Query vector for the dense branch, which lives in its own encoder's space."""
-    from src.encoders.text_retrieval import TextRetrievalEncoder
-    from src.config import AEMS_DENSE_TEXT_MODEL
-    encoder = TextRetrievalEncoder(model or AEMS_DENSE_TEXT_MODEL, device)
+    from src.encoders.text_retrieval import load_dense_encoder
+    encoder = load_dense_encoder(device, model)
     return encoder.encode_queries([text])

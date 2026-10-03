@@ -67,6 +67,9 @@ AEMS_FRAME_EMBEDDINGS_PATH = "embeddings/aems_frame_embeddings_v1.pt"
 # was trained on image captions, not documents: on validation it scores 0.397
 # R@1 against E5's 0.639 for the same passages.
 AEMS_DENSE_TEXT_MODEL = "e5"
+# Fine-tuned on AEMS (bin/training/train_dense_retriever.py): val dense-branch
+# R@1 0.6392 -> 0.6925. Used when present; the "e5" conventions still apply.
+AEMS_DENSE_MODEL_PATH = "models/aems_dense_retriever_v1"
 AEMS_DENSE_CHUNK_TOKENS = 400
 AEMS_DENSE_PASSAGES_PATH_TEMPLATE = "embeddings/aems_dense_passages_{split}.pt"
 
@@ -86,8 +89,8 @@ AEMS_PER_CANDIDATE_GATE_PATH = "models/aems_per_candidate_gate_v1.pth"
 # branch is back at 0.25: it measured redundant (-0.0009) against the *mean-pooled*
 # visual branch, but earns its place again once visual improved, so the earlier
 # "drop chunk" result was configuration-specific rather than general.
-AEMS_FUSION_WEIGHTS = {"visual": 0.3, "text": 0.2, "chunk": 0.25, "audio": 0.25,
-                       "bm25": 0.5, "dense": 1.0}
+AEMS_FUSION_WEIGHTS = {"visual": 0.3, "text": 0.2, "chunk": 0.1, "audio": 0.1,
+                       "bm25": 0.5, "dense": 1.1}
 AEMS_VIDEO_EMBEDDINGS_TRANSFORMER_PATH = "embeddings/aems_video_embeddings_transformer_v1.pt"
 
 

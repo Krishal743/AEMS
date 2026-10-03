@@ -16,13 +16,16 @@ from src.config import (AEMS_MANIFEST_PATH, AEMS_DENSE_PASSAGES_PATH_TEMPLATE,
                         AEMS_DENSE_TEXT_MODEL, AEMS_DENSE_CHUNK_TOKENS, DEVICE, set_seeds)
 from src.data.metadata import load_metadata, filter_by_split
 from src.data.text_chunks import video_chunks
-from src.encoders.text_retrieval import TextRetrievalEncoder
+from src.encoders.text_retrieval import load_dense_encoder
 
 parser = argparse.ArgumentParser(description="Precompute dense (E5/BGE/GTE) passage embeddings")
 parser.add_argument("--split", required=True, choices=["train", "test"])
 parser.add_argument("--manifest", default=AEMS_MANIFEST_PATH)
 parser.add_argument("--model", default=AEMS_DENSE_TEXT_MODEL)
 parser.add_argument("--output", default=None)
+parser.add_argument("--weights", default=None,
+                    help="checkpoint to load instead of the stock model; defaults to the "
+                         "AEMS fine-tuned retriever when it exists")
 parser.add_argument("--chunk-tokens", type=int, default=AEMS_DENSE_CHUNK_TOKENS)
 parser.add_argument("--max-chunks", type=int, default=32)
 parser.add_argument("--batch-size", type=int, default=128)
@@ -33,8 +36,8 @@ set_seeds(args.seed)
 out_path = args.output or AEMS_DENSE_PASSAGES_PATH_TEMPLATE.format(split=args.split)
 os.makedirs(os.path.dirname(out_path), exist_ok=True)
 
-print(f"[INIT] Loading {args.model} on {DEVICE}")
-encoder = TextRetrievalEncoder(args.model, DEVICE)
+encoder = load_dense_encoder(DEVICE, args.model, name=args.weights)
+print(f"[INIT] Loaded {encoder.config['name']} ({args.model} conventions) on {DEVICE}")
 
 records = filter_by_split(load_metadata(args.manifest), split=args.split)
 print(f"[DATA] {len(records)} records, {args.chunk_tokens}-token chunks")
