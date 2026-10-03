@@ -251,41 +251,21 @@ if args.rerank != "none":
     print(f"[RERANK] {args.rerank}: shortlist K={args.rerank_top_k}, "
           f"stage-1 recall@K={shortlist_utils.candidate_recall(candidates, gt_pos):.4f}", flush=True)
 
-    gated_z = None
-    if args.rerank in ("gate", "chain"):
-        from src.rerank import per_candidate
-        model = per_candidate.load(args.per_candidate_gate, DEVICE, n_branches=len(branch_z))
-        feats = shortlist_utils.gather_branch_scores(
-            [zscore(s).to(DEVICE) for s in (sim_v, sim_t, sim_c, sim_a, sim_b, sim_d)],
-            candidates.to(DEVICE))
-        with torch.no_grad():
-            gated = per_candidate.score(model, query_clip.float().to(DEVICE), feats).cpu()
-        if args.rerank == "gate":
-            systems["reranked_gate"] = shortlist_utils.rerank_scores_to_ranking(
-                stage1_scores, candidates, gated)
-        else:
-            gated_z = (gated - gated.mean(1, keepdim=True)) / (gated.std(1, keepdim=True) + 1e-6)
-    if args.rerank in ("cross", "chain"):
-        from src.rerank import cross_encoder
-        records = {r["video_id"]: r for r in load_metadata(args.manifest)}
-        chunk_db_rr = torch.load(AEMS_TEXT_CHUNKS_PATH_TEMPLATE.format(split="test"),
-                                 weights_only=False)
-        store = cross_encoder.PassageStore(records, common_vids, chunk_db_rr, DEVICE)
-        from src.routing.query_router import CROSS_ENCODER_MODEL
-        ce_model, tokenizer = cross_encoder.load_cross_encoder(
-            args.cross_encoder or CROSS_ENCODER_MODEL, DEVICE)
-        rescored = cross_encoder.rerank(ce_model, tokenizer, queries,
-                                        query_clip.float().to(DEVICE), candidates.to(DEVICE),
-                                        store, common_vids, n_passages=args.rerank_passages,
-                                        device=DEVICE).cpu()
-        z = (rescored - rescored.mean(1, keepdim=True)) / (rescored.std(1, keepdim=True) + 1e-6)
-        base = stage1_scores.gather(1, candidates)
-        if gated_z is not None:
-            base = base + args.rerank_beta * gated_z
-        systems["reranked_" + args.rerank] = shortlist_utils.rerank_scores_to_ranking(
-            stage1_scores, candidates, base + args.rerank_alpha * z)
-        del ce_model, tokenizer, store
-        torch.cuda.empty_cache()
+    from src.rerank.pipeline import rerank_batch
+    from src.routing.query_router import CROSS_ENCODER_MODEL
+    records_rr = {r["video_id"]: r for r in load_metadata(args.manifest)}
+    chunk_db_rr = torch.load(AEMS_TEXT_CHUNKS_PATH_TEMPLATE.format(split="test"),
+                             weights_only=False)
+    reranked, _ = rerank_batch(
+        args.rerank, stage1_scores,
+        [zscore(s).to(DEVICE) for s in (sim_v, sim_t, sim_c, sim_a, sim_b, sim_d)],
+        query_clip, queries, common_vids, records=records_rr, chunk_db=chunk_db_rr,
+        gate_path=args.per_candidate_gate,
+        cross_encoder_name=args.cross_encoder or CROSS_ENCODER_MODEL,
+        top_k=args.rerank_top_k, n_passages=args.rerank_passages,
+        alpha=args.rerank_alpha, beta=args.rerank_beta, device=DEVICE,
+        n_branches=len(branch_z))
+    systems["reranked_" + args.rerank] = reranked
 
 
 REFERENCE_SYSTEM = "text_only"   # what headline gains are quoted against

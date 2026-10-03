@@ -185,3 +185,23 @@ def test_build_sims_covers_every_branch():
         assert f'"{branch}"' in source, f"build_sims has no case for {branch}"
     # and it raises rather than silently dropping one
     assert "does not produce" in source
+
+
+def test_rerank_batch_blends_on_the_caller_s_device():
+    """stage-1 scores arrive on GPU from one caller and CPU from another; the
+    blend must follow them rather than assuming CPU."""
+    import torch
+    from src.rerank.pipeline import _z
+
+    cpu = torch.randn(3, 10)
+    assert _z(cpu).device == cpu.device
+    assert torch.allclose(_z(cpu).mean(1), torch.zeros(3), atol=1e-5)
+
+
+def test_z_normalises_each_query_independently():
+    import torch
+    from src.rerank.pipeline import _z
+
+    x = torch.tensor([[1.0, 2.0, 3.0], [10.0, 20.0, 30.0]])
+    z = _z(x)
+    assert torch.allclose(z[0], z[1], atol=1e-4), "rows differing only in scale must match"
