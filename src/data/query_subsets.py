@@ -24,6 +24,7 @@ checked by hand.
 """
 
 import re
+from functools import lru_cache
 
 # Words too common to carry retrieval signal. "video" is included because it
 # appears in nearly every generated question and nearly every description.
@@ -44,10 +45,17 @@ ANSWER_GROUNDED = "answer_grounded"
 VISUALLY_GROUNDED = "visually_grounded"
 
 
+@lru_cache(maxsize=200_000)
 def content_words(text):
-    """Lowercased content words: the unit both overlap measures are counted in."""
-    return {w for w in re.findall(r"[a-z0-9]+", (text or "").lower())
-            if w not in STOPWORDS and len(w) > 2}
+    """Lowercased content words: the unit both overlap measures are counted in.
+
+    Cached and frozen: moment labelling slides overlapping windows over the same
+    transcript segments thousands of times per video, so the same text is
+    tokenised repeatedly. Returning a frozenset keeps the cached value safe to
+    hand out; it still compares equal to a set and still supports `|`.
+    """
+    return frozenset(w for w in re.findall(r"[a-z0-9]+", (text or "").lower())
+                     if w not in STOPWORDS and len(w) > 2)
 
 
 def overlap(text, pool):

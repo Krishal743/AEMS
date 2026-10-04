@@ -72,4 +72,4 @@ skills-lock.json
 # but exclude the bulky dataset and any local venv.
 /aems/dataset/
 /aems/.venv/
-aems.egg-info
+aems.egg-infoembeddings/aems_dense_frames_*.pt

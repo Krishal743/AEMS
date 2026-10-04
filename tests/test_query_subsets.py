@@ -60,3 +60,12 @@ def test_visual_markers_fire_on_the_question_types_the_subset_targets():
 
 def test_visual_markers_do_not_fire_on_a_purely_conceptual_question():
     assert not VISUAL_MARKERS.search("Why is teamwork important in classroom management?")
+
+
+def test_content_words_is_cached_without_letting_callers_corrupt_the_cache():
+    """It is memoised for the moment labeller; a mutable return would be unsafe."""
+    first = content_words("barber clippers")
+    assert isinstance(first, frozenset)
+    assert first is content_words("barber clippers")
+    assert first | {"extra"} == {"barber", "clippers", "extra"}
+    assert content_words("barber clippers") == {"barber", "clippers"}

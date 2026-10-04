@@ -161,7 +161,17 @@ verification of the 300-query sample is the outstanding item.
 * **Acceptance:** a slice where BM25 scores near chance and the system still
   works, or clear evidence that it does not.
 
-### Phase 2 — make multimodality necessary (3–6 weeks, the novelty)
+### Phase 2 — make multimodality necessary (benchmark built; first result negative)
+
+`docs/RESULTS_TEMPORAL_GROUNDING_2026-10-04.md`. The task exists: 2,409
+labelled test moments, labels from the answer, methods see only the question.
+It is hard and prior-resistant (whole-video baseline 0.000 at IoU 0.5) and BM25
+leads at 0.183. The acceptance criterion below **failed**: the visual branch
+reaches 0.064 with 99.1% frame coverage and its tuned fusion weight is zero.
+That is not a sampling artifact — it was re-measured on a 3 s frame grid
+precisely to rule that out. It is, however, partly by construction: the labels
+mark where an answer is *spoken*. A genuinely visual grounding benchmark needs
+labels that do not come from text.
 
 * Parse `timecoded_text_to_speech` into aligned segments; build a segment-level
   index (frames + transcript spans).
